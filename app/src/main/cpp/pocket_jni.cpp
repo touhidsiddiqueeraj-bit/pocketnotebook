@@ -93,22 +93,30 @@ void emit_piece(JNIEnv * env, int64_t callback_id, const std::string & piece) {
     env->DeleteLocalRef(jp);
 }
 
-// Robust tokenize: handles both "returns count" and "returns negative needed".
+// Robust tokenize: grows the buffer until the result is strictly smaller,
+// and also handles the legacy "returns negative needed size" contract.
 int32_t tokenize(const struct llama_vocab * vocab, const std::string & text,
                  bool add_special, bool parse_special, std::vector<llama_token> & out) {
-    out.assign(2048, 0);
-    int32_t n = llama_tokenize(vocab, text.data(), (int32_t) text.size(),
-                               out.data(), (int32_t) out.size(),
-                               add_special, parse_special);
-    if (n < 0) {
-        out.assign((size_t) (-n) + 16, 0);
-        n = llama_tokenize(vocab, text.data(), (int32_t) text.size(),
-                           out.data(), (int32_t) out.size(),
-                           add_special, parse_special);
+    size_t cap = 2048;
+    for (int attempt = 0; attempt < 8; attempt++) {
+        out.assign(cap, 0);
+        int32_t n = llama_tokenize(vocab, text.data(), (int32_t) text.size(),
+                                   out.data(), (int32_t) out.size(),
+                                   add_special, parse_special);
+        if (n < 0) {
+            const int32_t needed = -n;
+            if (needed <= (int32_t) out.size()) { out.clear(); return n; } // hard error
+            cap = (size_t) needed + 16;
+            continue;
+        }
+        if (n < (int32_t) out.size()) {          // definitive result
+            if (n > 0) out.resize((size_t) n); else out.clear();
+            return n;
+        }
+        cap = out.size() * 2 + 512;              // buffer was exactly full — grow
     }
-    if (n > 0) out.resize((size_t) n);
-    else out.clear();
-    return n;
+    out.clear();
+    return -1;
 }
 
 } // namespace
