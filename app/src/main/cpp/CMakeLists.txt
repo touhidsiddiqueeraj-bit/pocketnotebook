@@ -1,11 +1,30 @@
 cmake_minimum_required(VERSION 3.22)
 project(pocketllm LANGUAGES C CXX)
 
+# --- 16 KB page-size compliance (Android 15+ devices) -------------------------
+# Newer Android (15/16) ships devices with 16 KB kernel page sizes; their loader
+# rejects any shared library whose PT_LOAD segments are aligned below 16 KB
+# (NDK r27 and lower link 4 KB-aligned ELFs by default). Linking with
+# max-page-size=16384 is required by Google's page-size guide for NDK <= r27 and
+# is fully backward-compatible with 4 KB devices.
+# Regression-checked after every build by scripts/check_16k_alignment.py in CI.
+add_link_options(
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+)
+
 # Repo root: app/src/main/cpp -> 4 levels up
 get_filename_component(POCKET_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
 set(POCKET_LLAMA_DIR "${POCKET_REPO_ROOT}/native/llama.cpp")
 
 add_library(pocketllm SHARED pocket_jni.cpp)
+
+# Belt & braces: the official per-target form, in case add_link_options above
+# is ever moved or removed.
+target_link_options(pocketllm PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+)
 
 find_library(log-lib log)
 target_link_libraries(pocketllm PRIVATE ${log-lib} android)

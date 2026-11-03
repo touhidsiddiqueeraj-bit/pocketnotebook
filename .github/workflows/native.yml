@@ -63,6 +63,11 @@ jobs:
       - name: Assemble release APK (native engine, signed)
         run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
 
+      - name: Verify 16 KB page-size compliance
+        # Gate: newer Android (15/16) devices reject 4 KB-aligned native libs
+        # at load time — the exact cause of the v0.1.0-alpha.1 launch crash.
+        run: python3 scripts/check_16k_alignment.py app/build/outputs/apk/release/app-release.apk
+
       - name: Rename APK
         run: |
           mv app/build/outputs/apk/release/app-release.apk \

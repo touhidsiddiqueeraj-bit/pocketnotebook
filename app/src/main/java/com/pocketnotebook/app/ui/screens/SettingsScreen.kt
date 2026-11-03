@@ -144,6 +144,11 @@ fun SettingsScreen(nav: NavHostController) {
                     "Device RAM class: ${am?.memoryClass ?: "?"} MB · threads: ${Runtime.getRuntime().availableProcessors()}",
                     style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
                 )
+                Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassButton("Diagnostics", onClick = {
+                        nav.navigate(com.pocketnotebook.app.ui.Routes.DIAGNOSTICS)
+                    })
+                }
             }
 
             // ---------------- storage ----------------
@@ -168,7 +173,7 @@ fun SettingsScreen(nav: NavHostController) {
             SectionLabel("About")
             GlassPanel(corner = 20.dp, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "PocketNotebook v0.1.0-alpha.1 — an offline clone of NotebookLM.",
+                    "PocketNotebook v0.1.0-alpha.2 — an offline clone of NotebookLM.",
                     style = MaterialTheme.typography.bodyMedium, color = glass.text,
                 )
                 Text(

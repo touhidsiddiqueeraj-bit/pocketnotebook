@@ -16,6 +16,7 @@ import com.pocketnotebook.app.core.hf.HfDownloader
 import com.pocketnotebook.app.core.ingest.IngestPipeline
 import com.pocketnotebook.app.core.llm.ChatService
 import com.pocketnotebook.app.core.llm.StudioService
+import com.pocketnotebook.app.core.crash.CrashGuard
 import com.pocketnotebook.app.core.prefs.PocketPrefs
 import com.pocketnotebook.app.core.retrieval.Retriever
 import com.pocketnotebook.app.core.work.Channels
@@ -25,10 +26,26 @@ class App : Application() {
     lateinit var container: AppContainer
         private set
 
+    /**
+     * Non-null when the DI container failed to build on this launch.
+     * MainActivity shows a minimal error screen (with copyable text) instead of
+     * crash-looping, so the failure reason can still reach us without adb.
+     */
+    @Volatile
+    var bootError: String? = null
+        private set
+
     override fun onCreate() {
         super.onCreate()
-        Channels.ensure(this)
-        container = AppContainer(this)
+        // First thing, before anything can throw: capture future crashes to disk.
+        CrashGuard.install(this)
+        try {
+            Channels.ensure(this)
+            container = AppContainer(this)
+        } catch (t: Throwable) {
+            bootError = t.message ?: t.toString()
+            CrashGuard.recordBootFailure(this, t)
+        }
     }
 }
 

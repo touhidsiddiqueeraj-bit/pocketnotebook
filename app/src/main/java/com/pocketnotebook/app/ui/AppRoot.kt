@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.pocketnotebook.app.ui.screens.ArtifactScreen
+import com.pocketnotebook.app.ui.screens.DiagnosticsScreen
 import com.pocketnotebook.app.ui.screens.HomeScreen
 import com.pocketnotebook.app.ui.screens.ModelsScreen
 import com.pocketnotebook.app.ui.screens.NotebookScreen
@@ -23,6 +24,7 @@ object Routes {
     const val ARTIFACT = "artifact/{id}"
     const val MODELS = "models"
     const val SETTINGS = "settings"
+    const val DIAGNOSTICS = "diagnostics"
 
     fun notebook(id: Long) = "notebook/$id"
     fun source(id: Long, chunkId: Long = -1) = "source/$id?chunk=$chunkId"
@@ -72,5 +74,6 @@ fun AppRoot() {
         }
         composable(Routes.MODELS) { ModelsScreen(nav = nav) }
         composable(Routes.SETTINGS) { SettingsScreen(nav = nav) }
+        composable(Routes.DIAGNOSTICS) { DiagnosticsScreen(nav = nav) }
     }
 }

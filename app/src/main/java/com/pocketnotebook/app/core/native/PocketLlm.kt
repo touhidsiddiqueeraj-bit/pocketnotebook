@@ -19,12 +19,20 @@ object PocketLlm {
     private const val MAGIC = 0x504C4D31 // must match pocket_jni.cpp kMagic
     private val json = Json { ignoreUnknownKeys = true }
 
-    val libLoaded: Boolean = try {
+    /**
+     * The exact System.loadLibrary failure reason, or null when the lib loaded.
+     * On 16 KB-page devices with a 4 KB-aligned lib this is the string that
+     * explains the crash (surfaced in Settings → Diagnostics).
+     */
+    val loadError: String? = try {
         System.loadLibrary("pocketllm")
-        true
-    } catch (_: Throwable) {
-        false
+        null
+    } catch (t: Throwable) {
+        t.message ?: t.toString()
     }
+
+    /** True when the native lib was mapped into the process. */
+    val libLoaded: Boolean get() = loadError == null
 
     /** True when the real llama.cpp engine is compiled into the app. */
     val fullEngine: Boolean by lazy {
