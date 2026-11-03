@@ -48,7 +48,7 @@ object CrashGuard {
 
     /** Kernel page size in bytes (4096 or 16384 on newer devices), -1 if unknown. */
     fun pageSizeBytes(): Long = try {
-        Os.sysconf(OsConstants.SC_PAGE_SIZE)
+        Os.sysconf(OsConstants._SC_PAGE_SIZE)
     } catch (_: Throwable) {
         -1L
     }
