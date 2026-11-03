@@ -1,15 +1,14 @@
 name: Release APK
 
-# Push a tag (e.g. v0.1.0) to build a release APK and attach it to a GitHub Release.
+# Push a tag (e.g. v0.1.0-alpha.1) to build the full native release APK and
+# attach it to a GitHub Release.
 #
-# Signing: if the repo secrets RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD,
-# RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD are set, the APK is signed with that
-# keystore. Until then it falls back to the debug key, which is still installable
-# by sideloading. To set up real signing:
-#   keytool -genkey -v -keystore release.keystore -alias pocketnotebook \
-#     -keyalg RSA -keysize 2048 -validity 10000
-#   base64 -w0 release.keystore  -> RELEASE_KEYSTORE_BASE64 secret
-#   plus the three password/alias secrets.
+# Signing priority (see app/build.gradle.kts):
+#   1. repo secrets RELEASE_KEYSTORE_BASE64 / _PASSWORD / _KEY_ALIAS / _KEY_PASSWORD
+#      (recommended for a real signing identity)
+#   2. the committed sideload keystore (keystores/upload.p12) — keeps sideload
+#      updates signature-stable for personal use. Rotate it before Play Store.
+#   3. debug key (last resort)
 
 on:
   push:
@@ -17,6 +16,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  LLAMA_REF: '6cb3e672e8d10fd4feab1a048bf2967c40623133'
 
 jobs:
   release:
@@ -52,19 +54,44 @@ jobs:
             echo "PN_KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
+      - name: Clone llama.cpp (pinned)
+        run: |
+          git clone --depth 1 --filter=blob:none https://github.com/ggml-org/llama.cpp native/llama.cpp
+          cd native/llama.cpp
+          git fetch --depth 1 origin "$LLAMA_REF"
+          git checkout FETCH_HEAD
+
+      - name: Cache native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/.cxx
+            app/build/intermediates/cxx
+          key: native-${{ env.LLAMA_REF }}-${{ hashFiles('app/src/main/cpp/**') }}
+
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Assemble release APK
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Assemble release APK (native engine)
+        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
 
-      - name: Rename APK
+      - name: Rename APK + checksums
         run: |
           mv app/build/outputs/apk/release/app-release.apk \
-             "PocketNotebook-${{ github.ref_name }}.apk"
+             "PocketNotebook-${{ github.ref_name }}-arm64.apk"
+          sha256sum "PocketNotebook-${{ github.ref_name }}-arm64.apk" > "checksums-${{ github.ref_name }}.txt"
 
       - name: Create GitHub Release & attach APK
         uses: softprops/action-gh-release@v2
         with:
-          files: PocketNotebook-${{ github.ref_name }}.apk
+          files: |
+            PocketNotebook-${{ github.ref_name }}-arm64.apk
+            checksums-${{ github.ref_name }}.txt
           generate_release_notes: true
+          body: |
+            **PocketNotebook ${{ github.ref_name }}** — offline NotebookLM clone for Android.
+
+            * Install: sideload the APK (allow "install unknown apps"). arm64-v8a, Android 8.0+.
+            * Models download on first run (LFM3-1.7B ~1 GB + bge-small embeddings 35 MB) — the APK stays ~80 MB.
+            * Engine: llama.cpp @ ${{ env.LLAMA_REF }}, statically linked.
+            * Voice typing and audio-overview narration use the device speech services in this build; LFM3-Audio-2B native voice lands after the Phase 0 spike (#1).

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exclude model weights + generated audio from cloud backups (huge, re-downloadable). -->
+<full-backup-content>
+    <exclude domain="file" path="models" />
+    <exclude domain="file" path="overview_audio" />
+</full-backup-content>

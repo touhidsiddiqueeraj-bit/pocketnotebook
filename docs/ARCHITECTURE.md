@@ -32,9 +32,9 @@ flowchart TB
         EMB["bge-small-en-v1.5 GGUF (embeddings)"]
     end
 
-    subgraph DATA["Room / SQLite"]
+    subgraph DATA["SQLite (hand-rolled, FTS5)"]
         DB[(notebooks · sources · chunks + embeddings · chats · artifacts)]
-        FTS[(FTS5 index)]
+        FTS[(FTS5 index w/ external-content sync triggers)]
     end
 
     UI --> CORE
@@ -65,7 +65,7 @@ flowchart LR
     BAKE --> PL[Media3 playlist + MediaSession]
 ```
 
-## Data model (Room, Phase 1)
+## Data model (SQLite v1 — FTS5 needs a hand-rolled schema; Room only wraps FTS4)
 
 ```
 Notebook(id, title, createdAt)
@@ -104,8 +104,10 @@ stateDiagram-v2
 
 ## Threading & services
 
-- One dedicated generation thread per active model; JNI callbacks marshal to
-  Kotlin `Flow` for token streaming.
+- One completion at a time (KV-cache + RAM reality); native streams token
+  pieces through a static bridge method (`PocketLlm.emitToken`) into a Kotlin
+  channel — the UI collects it live in chat.
+- Abort: `llama_context_params.abort_callback` → `PocketLlm.nativeAbort`. 
 - WorkManager jobs: `IngestWorker` (per source), `EmbedWorker`,
   `AudioBakeWorker`, `ModelDownloadWorker` (expedited + progress notification).
 - Foreground services for: audio bake, ASR ingestion, audio overview playback
@@ -149,11 +151,11 @@ object PocketLlm {
 
 ## CI/CD
 
-- **`android-ci.yml`** — every push/PR to `main`/`develop`: unit tests, lint,
-  `assembleDebug`, APK artifact upload. Caching via `gradle/actions/setup-gradle`.
-- **`release.yml`** — push a `v*` tag: tests, `assembleRelease` (signed if repo
-  secrets set, debug-key fallback otherwise), APK attached to a GitHub Release
-  with generated notes.
+- **`android-ci.yml`** — every push/PR: kit build (no native) — tests, lint,
+  stub APK. Minutes, not tens of minutes.
+- **`native.yml`** — push to `main`: clones llama.cpp @ pinned commit, builds
+  the full native release APK (arm64), uploads artifact + SHA256.
+- **`release.yml`** — push a `v*` tag: full native release APK → GitHub Release.
+- Signing: repo secrets > committed sideload keystore > debug key (details in
+  [BUILD.md](BUILD.md)).
 - Dependabot: weekly Gradle + Actions updates.
-- Native (`llama.cpp`) build lands in Phase 1 as a CI job with NDK cache —
-  the workflow already reserves room for it.

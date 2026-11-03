@@ -1,0 +1,86 @@
+name: Native build
+
+# Full APK with the real llama.cpp engine (arm64-v8a):
+#   1. clone llama.cpp at the pinned commit into native/llama.cpp
+#   2. gradle externalNativeBuild static-links libllama into libpocketllm.so
+#   3. signed (sideload keystore) release APK artifact
+#
+# The pinned commit can be overridden via workflow_dispatch.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      llama_ref:
+        description: 'llama.cpp commit/branch to build'
+        default: '6cb3e672e8d10fd4feab1a048bf2967c40623133'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LLAMA_REF: ${{ github.event.inputs.llama_ref || '6cb3e672e8d10fd4feab1a048bf2967c40623133' }}
+
+jobs:
+  native-release:
+    name: Full native release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Clone llama.cpp (pinned)
+        run: |
+          git clone --depth 1 --filter=blob:none https://github.com/ggml-org/llama.cpp native/llama.cpp
+          cd native/llama.cpp
+          git fetch --depth 1 origin "$LLAMA_REF"
+          git checkout FETCH_HEAD
+          echo "llama.cpp at: $(git rev-parse HEAD)"
+
+      - name: Cache native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/.cxx
+            app/build/intermediates/cxx
+          key: native-${{ env.LLAMA_REF }}-${{ hashFiles('app/src/main/cpp/**') }}
+
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Assemble release APK (native engine, signed)
+        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
+
+      - name: Rename APK
+        run: |
+          mv app/build/outputs/apk/release/app-release.apk \
+             PocketNotebook-native-arm64-${{ github.sha }}.apk
+
+      - name: Upload full APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketNotebook-native-arm64
+          path: PocketNotebook-native-arm64-${{ github.sha }}.apk
+          retention-days: 30
+
+      - name: SHA256
+        run: sha256sum PocketNotebook-native-arm64-*.apk | tee checksums.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketNotebook-native-checksums
+          path: checksums.txt
+          retention-days: 30

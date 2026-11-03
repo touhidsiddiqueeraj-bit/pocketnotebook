@@ -10,15 +10,20 @@ for (model downloads, web-page sources).
 
 ## Status
 
-🚧 **Phase 0 — spike & model validation.** This repo currently contains the
-project scaffold, planning docs, and CI/CD. See the
-[roadmap](docs/PLAN.md#8-roadmap).
+🚧 **v0.1.0-alpha — full app implemented.** Notebooks, sources (PDF/DOCX/TXT/
+MD/URL/paste), grounded chat with citation chips, studio (study guide, briefing,
+FAQ, timeline, mind map, flashcards with SM-2, quiz), audio overview scripts +
+platform-TTS narration, HF model manager with curated catalog **and arbitrary
+GGUF search/download**, liquid-glass UI. LFM3-Audio native voice + native ASR
+land after the Phase 0 spike (#1).
 
 | Doc | Contents |
 |---|---|
 | [docs/PLAN.md](docs/PLAN.md) | Master plan: feature-parity map, stack, pipelines, risks, roadmap |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System diagrams, data model, model lifecycle, JNI surface |
 | [docs/MODEL_MATRIX.md](docs/MODEL_MATRIX.md) | On-device model strategy (LFM3-first), HF integration, licenses |
+| [docs/BUILD.md](docs/BUILD.md) | Kit vs full builds, llama.cpp pin, signing, CI/CD |
+| [docs/PRIVACY.md](docs/PRIVACY.md) | Local-first privacy model + v0.1 speech caveats |
 | [docs/spike-results.md](docs/spike-results.md) | Phase 0 measurement template |
 
 ## The stack (short version)
@@ -30,7 +35,7 @@ project scaffold, planning docs, and CI/CD. See the
 | Optional narration | Kokoro-82M pack (2 distinct podcast-host voices) |
 | Embeddings | bge-small-en-v1.5 (384-d) |
 | Retrieval | SQLite FTS5 (BM25) + vector cosine, reciprocal rank fusion |
-| App | Kotlin + Jetpack Compose, Room, WorkManager, Media3 |
+| App | Kotlin + Jetpack Compose (liquid-glass UI), SQLite+FTS5, WorkManager, Media3 |
 
 Models are **never bundled** — downloaded on first run (or any HF GGUF repo you
 point the model manager at) with pause/resume and integrity checks.
@@ -52,14 +57,19 @@ Unit tests + lint:
 
 ## Install (sideload)
 
-Grab the debug APK from the latest
-[Actions run](https://github.com/touhidsiddiqueeraj-bit/pocketnotebook/actions/workflows/android-ci.yml)
-(artifact `PocketNotebook-debug`) or any
-[Release](https://github.com/touhidsiddiqueeraj-bit/pocketnotebook/releases), then:
+Grab the **full native APK** from the latest
+[native build run](https://github.com/touhidsiddiqueeraj-bit/pocketnotebook/actions/workflows/native.yml)
+(artifact `PocketNotebook-native-arm64`) or from the newest
+[Release](https://github.com/touhidsiddiqueeraj-bit/pocketnotebook/releases),
+then install it like any sideloaded APK (allow "install unknown apps"):
 
 ```bash
-adb install PocketNotebook-*.apk
+adb install PocketNotebook-*-arm64.apk
 ```
+
+Requires: Android 8.0+ (arm64). First launch downloads the models —
+LFM3-1.7B QAD-Q4_0 (~1.0 GB) and bge-small embeddings (35 MB) — over
+whatever network you allow; everything after that is offline.
 
 ## CI/CD
 

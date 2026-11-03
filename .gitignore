@@ -24,5 +24,11 @@ secrets.properties
 # Native build artifacts
 *.so
 
+# llama.cpp checkout (cloned in CI / locally, never committed)
+native/llama.cpp/
+
+# Committed sideload keystore is INTENTIONAL (see keystores/README comment in
+# docs/BUILD.md) — rotate before any Play Store distribution.
+
 # OS
 .DS_Store
