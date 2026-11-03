@@ -22,11 +22,12 @@ class SourceRepo(private val db: SQLiteDatabase) {
                  wordCount: Int? = null, chunkCount: Int? = null) {
         val cv = ContentValues().apply {
             put("status", status)
-            error?.let { put("error", it) } ?: if (status == SourceStatus.READY) putNull("error")
+            if (error != null) put("error", error)
+            else if (status == SourceStatus.READY) putNull("error")
+            charCount?.let { put("charCount", it) }
+            wordCount?.let { put("wordCount", it) }
+            chunkCount?.let { put("chunkCount", it) }
         }
-        charCount?.let { put -> cv.put("charCount", it) }
-        wordCount?.let { cv.put("wordCount", it) }
-        chunkCount?.let { cv.put("chunkCount", it) }
         db.update("sources", cv, "id = ?", arrayOf(id.toString()))
     }
 

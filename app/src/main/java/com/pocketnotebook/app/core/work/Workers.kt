@@ -186,14 +186,14 @@ class DownloadWorker(appContext: Context, params: WorkerParameters) :
                 fileName = fileName,
                 expectedSize = size,
                 onProgress = { p ->
-                    setProgress(
+                    setProgressAsync(
                         workDataOf(
                             PROGRESS_BYTES to p.bytes,
                             PROGRESS_TOTAL to p.total,
                             PROGRESS_PERCENT to p.percent,
                             "file" to fileName,
                         ),
-                    )
+                    ).get()
                 },
                 checkCancelled = { isStopped },
             )
@@ -230,7 +230,7 @@ class BakeWorker(appContext: Context, params: WorkerParameters) :
         safeForeground("Baking audio overview")
         return@withContext try {
             container.overviewBaker.bake(artifactId) { done, total ->
-                setProgress(workDataOf(PROGRESS_DONE to done, PROGRESS_TOTAL to total))
+                setProgressAsync(workDataOf(PROGRESS_DONE to done, PROGRESS_TOTAL to total)).get()
             }
             Result.success(workDataOf(KEY_ARTIFACT_ID to artifactId))
         } catch (t: Throwable) {

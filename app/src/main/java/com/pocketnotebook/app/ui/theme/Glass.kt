@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -31,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -89,7 +91,7 @@ fun AuroraBackground(
             val d = drifts[i % drifts.size].value
             val cx = w * bx + w * 0.18f * (d - 0.5f)
             val cy = h * by + h * 0.10f * (0.5f - d)
-            val r = size.minDimension() * (0.42f + 0.10f * i)
+            val r = size.minDimension * (0.42f + 0.10f * i)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(color.copy(alpha = 0.16f * intensity), Color.Transparent),
@@ -110,7 +112,7 @@ private fun rememberDrift(
     from: Float,
     to: Float,
     seed: Float,
-): androidx.compose.State<Float> =
+): State<Float> =
     transition.animateFloat(
         initialValue = if (seed > 0.5f) from else to,
         targetValue = if (seed > 0.5f) to else from,
@@ -239,11 +241,11 @@ fun GlassRow(
 @Composable
 fun GlassButton(
     text: String,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     primary: Boolean = false,
     enabled: Boolean = true,
+    onClick: () -> Unit,
 ) {
     val glass = LocalGlassColors.current
     val shape = RoundedCornerShape(20.dp)
@@ -294,10 +296,10 @@ fun GlassButton(
 @Composable
 fun GlassIconButton(
     icon: ImageVector,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
     tint: Color? = null,
+    onClick: () -> Unit,
 ) {
     val glass = LocalGlassColors.current
     Box(

@@ -65,11 +65,11 @@ class LlmRuntime(
     // ------------------------------------------------------------------ chat
 
     suspend fun ensureChatLoaded(): Boolean {
-        if (chatHandle != 0) return true
+        if (chatHandle != 0L) return true
         if (!PocketLlm.fullEngine) return false
         val path = activeModelPath(ModelSlot.CHAT) ?: return false
         return chatLoadMutex.withLock {
-            if (chatHandle != 0) return true
+            if (chatHandle != 0L) return true
             val file = File(path)
             if (!file.exists()) {
                 prefs.setActiveModel(ModelSlot.CHAT, null)
@@ -93,7 +93,7 @@ class LlmRuntime(
 
     suspend fun unloadChat() {
         chatLoadMutex.withLock {
-            if (chatHandle != 0) {
+            if (chatHandle != 0L) {
                 withContext(Dispatchers.IO) { PocketLlm.nativeUnload(chatHandle) }
                 chatHandle = 0
             }
@@ -104,11 +104,11 @@ class LlmRuntime(
     // ---------------------------------------------------------------- embed
 
     suspend fun ensureEmbedLoaded(): Boolean {
-        if (embedHandle != 0) return true
+        if (embedHandle != 0L) return true
         if (!PocketLlm.fullEngine) return false
         val path = activeModelPath(ModelSlot.EMBED) ?: return false
         return embedLoadMutex.withLock {
-            if (embedHandle != 0) return true
+            if (embedHandle != 0L) return true
             if (!File(path).exists()) {
                 prefs.setActiveModel(ModelSlot.EMBED, null)
                 return false
@@ -129,7 +129,7 @@ class LlmRuntime(
     }
 
     suspend fun embed(text: String): FloatArray? = withContext(Dispatchers.IO) {
-        if (!ensureEmbedLoaded() || embedHandle == 0) return@withContext null
+        if (!ensureEmbedLoaded() || embedHandle == 0L) return@withContext null
         try {
             val v = PocketLlm.nativeEmbed(embedHandle, text)
             if (v.isEmpty()) null else v
@@ -142,7 +142,7 @@ class LlmRuntime(
 
     suspend fun chatTemplate(roles: List<String>, contents: List<String>, addAssist: Boolean = true): String {
         val h = chatHandle
-        if (h == 0) return ""
+        if (h == 0L) return ""
         return withContext(Dispatchers.IO) {
             PocketLlm.nativeApplyTemplate(h, roles.toTypedArray(), contents.toTypedArray(), addAssist)
         }
@@ -150,7 +150,7 @@ class LlmRuntime(
 
     suspend fun tokenCount(text: String): Int {
         val h = chatHandle
-        if (h == 0) return text.length / 4
+        if (h == 0L) return text.length / 4
         return withContext(Dispatchers.IO) { PocketLlm.nativeTokenCount(h, text) }
     }
 
@@ -185,7 +185,7 @@ class LlmRuntime(
     }
 
     fun abortGeneration() {
-        if (chatHandle != 0) PocketLlm.nativeAbort(chatHandle)
+        if (chatHandle != 0L) PocketLlm.nativeAbort(chatHandle)
     }
 
     // ---------------------------------------------------------------- models

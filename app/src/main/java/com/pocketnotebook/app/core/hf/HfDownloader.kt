@@ -32,7 +32,7 @@ class HfDownloader(private val client: OkHttpClient) {
         expectedSize: Long = -1,
         sha256: String? = null,
         onProgress: (Progress) -> Unit = {},
-        checkCancelled: () -> Boolean = {},
+        checkCancelled: () -> Boolean = { false },
     ): File {
         targetDir.mkdirs()
         val final = File(targetDir, fileName)

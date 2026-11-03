@@ -34,6 +34,7 @@ import com.pocketnotebook.app.ui.GlassDivider
 import com.pocketnotebook.app.ui.rememberContainer
 import com.pocketnotebook.app.ui.theme.GlassButton
 import com.pocketnotebook.app.ui.theme.GlassChip
+import com.pocketnotebook.app.ui.theme.GlassIconButton
 import com.pocketnotebook.app.ui.theme.GlassPanel
 import com.pocketnotebook.app.ui.theme.LocalGlassColors
 import kotlinx.serialization.json.Json
@@ -55,7 +56,9 @@ fun FlashcardsBody(artifactId: Long, payload: String) {
     val container = rememberContainer()
     val glass = LocalGlassColors.current
 
-    var set by remember { mutableStateOf(parseSet(artifactId, payload, container) ?: return) }
+    val initialSet = remember { parseSet(artifactId, payload, container) }
+    if (initialSet == null) return
+    var set by remember { mutableStateOf(initialSet) }
     var dueOnly by remember { mutableStateOf(true) }
     var queue by remember {
         val now = System.currentTimeMillis()

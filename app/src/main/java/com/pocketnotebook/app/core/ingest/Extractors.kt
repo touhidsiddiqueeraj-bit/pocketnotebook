@@ -36,7 +36,7 @@ object Extractors {
     // -------------------------------------------------------------------- PDF
 
     fun fromPdf(context: Context, bytes: ByteArray): String = try {
-        com.tom_roush.pdfbox.PDFBoxResourceLoader.init(context)
+        com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context)
         com.tom_roush.pdfbox.pdmodel.PDDocument.load(ByteArrayInputStream(bytes)).use { doc ->
             val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
             stripper.sortByPosition = true

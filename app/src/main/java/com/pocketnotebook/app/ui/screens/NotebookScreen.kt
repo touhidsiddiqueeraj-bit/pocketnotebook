@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Chat
-import androidx.compose.material.icons.rounded.GridDashboard
+import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Notes
 import androidx.compose.material.icons.rounded.Source
 import androidx.compose.material.icons.rounded.Tune
@@ -52,7 +52,7 @@ fun NotebookScreen(notebookId: Long, nav: NavHostController) {
     val tabs = listOf(
         TabSpec("Chat", Icons.Rounded.Chat),
         TabSpec("Sources", Icons.Rounded.Source),
-        TabSpec("Studio", Icons.Rounded.GridDashboard),
+        TabSpec("Studio", Icons.Rounded.Dashboard),
         TabSpec("Notes", Icons.Rounded.Notes),
     )
 

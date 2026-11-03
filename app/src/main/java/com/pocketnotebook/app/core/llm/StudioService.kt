@@ -62,7 +62,7 @@ class StudioService(
     @Serializable
     data class OverviewScript(
         var title: String = "Audio Overview",
-        val style: String = "deepdive",
+        var style: String = "deepdive",
         val segments: MutableList<OverviewSegment> = mutableListOf(),
         var baked: Boolean = false,
     )

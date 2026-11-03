@@ -85,7 +85,7 @@ fun ArtifactScreen(artifactId: Long, nav: NavHostController) {
                     color = glass.text,
                 )
                 Text(
-                    (kind ?: "").replace('_', ''),
+                    (kind ?: "").replace("_", ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = glass.textMuted,
                 )
@@ -226,7 +226,7 @@ private fun OverviewBody(artifactId: Long, payload: String) {
     DisposableEffect(isBaked) {
         val p = if (isBaked) ExoPlayer.Builder(context).build() else null
         p?.let {
-            it.addAll(
+            it.addMediaItems(
                 0,
                 bakedFiles.map { f -> MediaItem.fromUri(f.toUri()) },
             )
