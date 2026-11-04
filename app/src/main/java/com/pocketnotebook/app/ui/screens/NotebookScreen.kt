@@ -9,9 +9,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notes
 import androidx.compose.material.icons.rounded.Source
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -81,7 +81,7 @@ fun NotebookScreen(notebookId: Long, nav: NavHostController) {
                         .padding(horizontal = 12.dp),
                 )
                 GlassIconButton(
-                    Icons.Rounded.Tune,
+                    Icons.Rounded.MoreVert,
                     contentDescription = "Notebook options",
                 ) { showRename = true }
             }

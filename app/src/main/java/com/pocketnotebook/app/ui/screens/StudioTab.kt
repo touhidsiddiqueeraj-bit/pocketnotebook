@@ -65,7 +65,7 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
 
     var artifacts by remember { mutableStateOf(container.artifactRepo.list(notebookId)) }
     val runtimeState by container.runtime.state.collectAsState()
-    val chatReady = runtimeState.chatPath != null
+    val modelSet = remember { container.runtime.modelPathFor(ModelSlot.CHAT) != null }
 
     fun reload() { artifacts = container.artifactRepo.list(notebookId) }
 
@@ -78,7 +78,7 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
     }
 
     fun generate(card: StudioCard) {
-        if (runtimeState.generating) return
+        if (runtimeState.generating || !modelSet) return
         scope.launch {
             when (card.kind) {
                 ArtifactKind.MINDMAP -> container.studioService.generateMindMap(notebookId)
@@ -103,8 +103,8 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
     )
 
     Column(Modifier.fillMaxWidth()) {
-        if (!chatReady) {
-            GlassPanel(corner = 18.dp, modifier = Modifier
+        when {
+            !modelSet -> GlassPanel(corner = 18.dp, modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 18.dp, vertical = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -114,8 +114,13 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
                         color = glass.textMuted,
                         modifier = Modifier.weight(1f),
                     )
-                    GlassButton("Models", onClick = { nav.navigate(Routes.MODELS) })
+                    GlassButton("Get", primary = true, onClick = { nav.navigate(Routes.MODELS) })
                 }
+            }
+            runtimeState.chatLoading -> GlassPanel(corner = 18.dp, modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 8.dp)) {
+                Text("Loading model…", style = MaterialTheme.typography.bodySmall, color = glass.textMuted)
             }
         }
 

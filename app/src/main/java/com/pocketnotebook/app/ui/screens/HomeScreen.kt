@@ -63,7 +63,6 @@ fun HomeScreen(nav: NavHostController) {
                     color = glass.text,
                     modifier = Modifier.weight(1f),
                 )
-                GlassIconButton(Icons.Rounded.Memory, contentDescription = "Models") { nav.navigate("models") }
             }
         },
         bottom = {

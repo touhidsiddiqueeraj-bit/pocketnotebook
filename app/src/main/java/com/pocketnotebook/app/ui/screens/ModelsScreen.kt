@@ -153,9 +153,9 @@ fun ModelsScreen(nav: NavHostController) {
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SlotRow("Chat", ModelSlot.CHAT, runtimeState.chatLoading, runtimeState.chatPath)
-                    SlotRow("Embeddings", ModelSlot.EMBED, runtimeState.embedLoading, runtimeState.embedPath)
-                    SlotRow("Speech", ModelSlot.AUDIO, false, container.prefs.activeModelPath(ModelSlot.AUDIO))
+                    SlotRow("Chat", container.prefs.activeModelPath(ModelSlot.CHAT), runtimeState.chatLoading, runtimeState.chatPath)
+                    SlotRow("Embeddings", container.prefs.activeModelPath(ModelSlot.EMBED), runtimeState.embedLoading, runtimeState.embedPath)
+                    SlotRow("Speech", container.prefs.activeModelPath(ModelSlot.AUDIO), false, null)
                 }
             }
 
@@ -234,7 +234,10 @@ fun ModelsScreen(nav: NavHostController) {
                         } else {
                             GlassChip("Activate", onClick = {
                                 container.prefs.setActiveModel(m.slot, m.filePath)
-                                if (m.slot == ModelSlot.CHAT) scope.launch { container.runtime.unloadChat() }
+                                if (m.slot == ModelSlot.CHAT) scope.launch {
+                                    container.runtime.unloadChat()
+                                    container.runtime.ensureChatLoaded()
+                                }
                                 reload()
                             })
                         }
@@ -242,45 +245,49 @@ fun ModelsScreen(nav: NavHostController) {
                 }
             }
 
-            // ---- curated catalog ----
-            item {
-                Text(
-                    "SUGGESTED",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = glass.textMuted,
-                    modifier = Modifier.padding(start = 6.dp, top = 8.dp),
-                )
-            }
-            items(container.modelCatalog.entries, key = { it.id }) { entry ->
-                GlassPanel(corner = 22.dp, modifier = Modifier.fillMaxWidth()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            if (entry.experimental) Icons.Rounded.Science else Icons.Rounded.Verified,
-                            null,
-                            tint = if (entry.experimental) glass.accent3 else glass.accent,
-                            modifier = Modifier.padding(end = 8.dp),
-                        )
-                        Text(
-                            entry.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = glass.text,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            formatBytes(entry.sizeBytes),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = glass.textMuted,
-                        )
-                    }
-                    GlassButton(
-                        text = "Download",
-                        icon = Icons.Rounded.CloudDownload,
-                        primary = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                    ) {
-                        enqueue(entry.repoId, entry.fileName, entry.slot)
+            // ---- curated catalog (only what is still missing) ----
+            val slotsFilled = installed.map { it.slot }.toSet()
+            val missing = container.modelCatalog.entries.filter { it.slot !in slotsFilled }
+            if (missing.isNotEmpty()) {
+                item {
+                    Text(
+                        "SUGGESTED",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = glass.textMuted,
+                        modifier = Modifier.padding(start = 6.dp, top = 8.dp),
+                    )
+                }
+                items(missing, key = { it.id }) { entry ->
+                    GlassPanel(corner = 22.dp, modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (entry.experimental) Icons.Rounded.Science else Icons.Rounded.Verified,
+                                null,
+                                tint = if (entry.experimental) glass.accent3 else glass.accent,
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                            Text(
+                                entry.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = glass.text,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                formatBytes(entry.sizeBytes),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = glass.textMuted,
+                            )
+                        }
+                        GlassButton(
+                            text = "Download",
+                            icon = Icons.Rounded.CloudDownload,
+                            primary = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                        ) {
+                            enqueue(entry.repoId, entry.fileName, entry.slot)
+                        }
                     }
                 }
             }
@@ -374,9 +381,9 @@ fun ModelsScreen(nav: NavHostController) {
 @Composable
 private fun SlotRow(
     label: String,
-    slot: String,
-    loading: Boolean,
     activePath: String?,
+    loading: Boolean,
+    loadedPath: String?,
 ) {
     val glass = LocalGlassColors.current
     GlassPanel(corner = 18.dp, modifier = Modifier.fillMaxWidth()) {
@@ -387,12 +394,11 @@ private fun SlotRow(
                 color = glass.text,
                 modifier = Modifier.weight(1f),
             )
-            if (loading) {
-                Text("loading…", style = MaterialTheme.typography.labelSmall, color = glass.accent)
-            } else if (activePath != null) {
-                Icon(Icons.Rounded.Verified, null, tint = glass.accent)
-            } else {
-                Text("—", style = MaterialTheme.typography.labelSmall, color = glass.textMuted)
+            when {
+                loading -> Text("loading…", style = MaterialTheme.typography.labelSmall, color = glass.accent)
+                activePath != null && loadedPath == activePath ->
+                    Icon(Icons.Rounded.Verified, null, tint = glass.accent)
+                else -> Text("—", style = MaterialTheme.typography.labelSmall, color = glass.textMuted)
             }
         }
         val file = activePath?.let { java.io.File(it) }

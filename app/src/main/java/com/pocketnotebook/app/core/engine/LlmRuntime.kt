@@ -190,6 +190,9 @@ class LlmRuntime(
 
     // ---------------------------------------------------------------- models
 
+    /** Public: does this slot have a model set (prefs, DB fallback)? */
+    fun modelPathFor(slot: String): String? = activeModelPath(slot)
+
     private fun activeModelPath(slot: String): String? {
         prefs.activeModelPath(slot)?.let { return it }
         val repo = ModelRepo(db.writableDatabase)

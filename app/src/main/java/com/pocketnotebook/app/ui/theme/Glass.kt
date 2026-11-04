@@ -508,16 +508,19 @@ fun GlassTabBar(
                         contentAlignment = Alignment.Center,
                     ) {
                         val active = i == selected
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             Icon(
                                 icon, contentDescription = label,
                                 tint = if (active) glass.accent else glass.textMuted,
-                                modifier = Modifier.height(18.dp),
+                                modifier = Modifier.height(20.dp),
                             )
-                            if (active) Text(
+                            Text(
                                 label,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = glass.text,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (active) glass.text else glass.textMuted,
                             )
                         }
                     }
