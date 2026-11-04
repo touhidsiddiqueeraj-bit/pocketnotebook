@@ -20,7 +20,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("versionCode").getOrElse("1").toInt()
-        versionName = providers.gradleProperty("versionName").getOrElse("0.1.0-alpha.10")
+        versionName = providers.gradleProperty("versionName").getOrElse("0.1.0-alpha.11")
         vectorDrawables { useSupportLibrary = true }
 
         ndk {
