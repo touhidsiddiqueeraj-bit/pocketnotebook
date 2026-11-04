@@ -81,6 +81,7 @@ fun DiagnosticsScreen(nav: NavHostController) {
         appendLine("native-lib-loaded: ${PocketLlm.libLoaded}")
         appendLine("native-load-error: ${PocketLlm.loadError}")
         appendLine("llama-engine-built: ${PocketLlm.fullEngine}")
+        appendLine("gpu: ${PocketLlm.gpuInfo().replace("\n", " · ")}")
         appendLine("models-dir: ${modelsDir.absolutePath} (${formatBytes(modelsSize)})")
         appendLine("chat-model: ${container.prefs.activeModelPath(ModelSlot.CHAT) ?: "none"}")
         appendLine("chat-loaded-in-memory: ${container.runtime.state.value.chatPath ?: "no"}")
@@ -165,6 +166,11 @@ fun DiagnosticsScreen(nav: NavHostController) {
                     "llama.cpp engine: " +
                         if (PocketLlm.fullEngine) "active (full native build)"
                         else "not available (kit build or load failure)",
+                    style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
+                    "GPU: ${PocketLlm.gpuInfo()}",
                     style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
                     modifier = Modifier.padding(top = 4.dp),
                 )

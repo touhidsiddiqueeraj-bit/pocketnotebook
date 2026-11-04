@@ -96,6 +96,15 @@ object PocketLlm {
     external fun nativeAbort(id: Long)
     external fun nativeEmbed(id: Long, text: String): FloatArray
 
+    /** GPU backend status from the engine log (device + offload result). */
+    fun gpuInfo(): String = try {
+        if (!libLoaded) "native lib not loaded" else nativeGpuInfo()
+    } catch (_: Throwable) {
+        "unavailable"
+    }
+
+    private external fun nativeGpuInfo(): String
+
     @Serializable
     data class Meta(
         val desc: String = "",

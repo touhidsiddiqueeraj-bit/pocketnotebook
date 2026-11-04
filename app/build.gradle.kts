@@ -20,12 +20,26 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("versionCode").getOrElse("1").toInt()
-        versionName = providers.gradleProperty("versionName").getOrElse("0.1.0-alpha.8")
+        versionName = providers.gradleProperty("versionName").getOrElse("0.1.0-alpha.9")
         vectorDrawables { useSupportLibrary = true }
 
         ndk {
             // Sideload target is real phones; add "x86_64" locally for emulator runs.
             abiFilters += "arm64-v8a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                // GPU backend switch: -PgpuOpencl=false builds CPU-only (e.g. for
+                // devices whose vendor does not expose libOpenCL.so).
+                arguments += "-DPOCKET_OPENCL=" +
+                    (providers.gradleProperty("gpuOpencl").getOrElse("true").toBoolean())
+                // ggml-opencl embeds its .cl kernels at build time via python —
+                // pin the interpreter so find_package(Python3) can't wander.
+                if (File("/usr/bin/python3").canExecute()) {
+                    arguments += "-DPython3_EXECUTABLE=/usr/bin/python3"
+                }
+            }
         }
     }
 

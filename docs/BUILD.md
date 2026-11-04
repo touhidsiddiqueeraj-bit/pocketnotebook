@@ -47,6 +47,29 @@ automatically. The commit currently shipped:
 - Update the pin → bump `LLAMA_REF` in `.github/workflows/native.yml` and
   `release.yml` and the engine line in Settings.
 
+### GPU acceleration (OpenCL / Adreno)
+
+Since v0.1.0-alpha.9 the build compiles the ggml **OpenCL backend**
+(`GGML_OPENCL=ON`), so on Snapdragon devices all model layers offload to the
+Adreno GPU automatically (`n_gpu_layers` defaults to "all"). Kernels are
+embedded into `libpocketllm.so` (no `.cl` files shipped) and the Adreno-tuned
+matmul kernels are enabled. Verify on-device: Settings → Diagnostics →
+"GPU:" shows the OpenCL device and the "offloaded N/M layers to GPU" line.
+
+Build requirements (CI does this for you — see the "OpenCL stub" step in
+`.github/workflows/native.yml`):
+
+1. Khronos `OpenCL-Headers` copied into the NDK sysroot `usr/include/`.
+2. Khronos `OpenCL-ICD-Loader` built for `arm64-v8a` with the NDK toolchain —
+   this is a **build-time stub only**; the app does not ship it.
+3. The stub copied to `usr/lib/aarch64-linux-android/` (and the `26/` API
+   dir) inside the NDK sysroot.
+
+At runtime the `libOpenCL.so` dependency resolves to the **device's own vendor
+OpenCL** (a public library on Snapdragon devices). Devices that do not expose
+one (most MediaTek/Exynos) would fail to load `libpocketllm.so` — build those
+CPU-only with `-PgpuOpencl=false`.
+
 ### 16 KB page-size compliance (read this before touching the NDK)
 
 Android 15+ ships devices with **16 KB kernel page sizes** (mandatory for new

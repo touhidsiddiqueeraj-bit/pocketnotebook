@@ -31,6 +31,9 @@ target_link_libraries(pocketllm PRIVATE ${log-lib} android)
 
 target_compile_options(pocketllm PRIVATE -O3 -fexceptions)
 
+option(POCKET_OPENCL
+       "PocketNotebook: enable the ggml OpenCL GPU backend (Adreno)" ON)
+
 if(EXISTS "${POCKET_LLAMA_DIR}/CMakeLists.txt")
     message(STATUS "PocketNotebook: llama.cpp found -> full native engine")
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -42,6 +45,34 @@ if(EXISTS "${POCKET_LLAMA_DIR}/CMakeLists.txt")
     set(LLAMA_CURL           OFF CACHE BOOL "" FORCE)
     set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
     set(GGML_BACKEND_DL      OFF CACHE BOOL "" FORCE)
+
+    # GPU acceleration via the ggml OpenCL backend (see docs/backend/OPENCL.md
+    # in the pinned llama.cpp). Adreno (Snapdragon) is the primary target:
+    #  - GGML_OPENCL_EMBED_KERNELS (ggml default ON): OpenCL kernels are
+    #    compiled INTO libpocketllm.so — no .cl files to ship.
+    #  - GGML_OPENCL_USE_ADRENO_KERNELS (ggml default ON): Adreno-tuned
+    #    matmul/attention kernels.
+    #  - LFM3 needs ssm_conv/ssm_scan/gated_delta_net kernels — all present.
+    #  - llama_model_default_params().n_gpu_layers == -1 ("all"), so layers
+    #    offload automatically once the backend reports a device.
+    # Build-time the linker needs an OpenCL stub (Khronos ICD loader, see
+    # .github/workflows/native.yml); at RUNTIME the dependency resolves to the
+    # device's own vendor libOpenCL.so (a public library on Snapdragon
+    # devices), so no extra .so is shipped. Devices without a usable OpenCL
+    # runtime are not supported by this build path — disable with
+    # -DPOCKET_OPENCL=OFF (gradle: -PgpuOpencl=false).
+    if(POCKET_OPENCL)
+        message(STATUS "PocketNotebook: OpenCL GPU backend ENABLED (Adreno)")
+        set(GGML_OPENCL ON CACHE BOOL "" FORCE)
+        # Kernels compiled INTO the .so (Android ships no .cl files) and the
+        # Adreno-tuned matmul/attention kernels (both are ggml defaults; set
+        # explicitly so an upstream default change cannot silently regress).
+        set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "" FORCE)
+        set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "" FORCE)
+        target_compile_definitions(pocketllm PRIVATE POCKET_WITH_OPENCL=1)
+    else()
+        message(STATUS "PocketNotebook: OpenCL GPU backend disabled (CPU only)")
+    endif()
     add_subdirectory("${POCKET_LLAMA_DIR}" llama_cpp EXCLUDE_FROM_ALL)
     target_link_libraries(pocketllm PRIVATE llama)
     target_compile_definitions(pocketllm PRIVATE POCKET_WITH_LLAMA=1)

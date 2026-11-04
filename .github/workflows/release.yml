@@ -61,6 +61,51 @@ jobs:
           git fetch --depth 1 origin "$LLAMA_REF"
           git checkout FETCH_HEAD
 
+      - name: OpenCL stub for the Adreno GPU backend
+        # The ggml OpenCL backend (GGML_OPENCL=ON in app/src/main/cpp/CMakeLists.txt)
+        # links against libOpenCL.so. Android does not ship an NDK OpenCL, so:
+        #   1. install the NDK (AGP would download it anyway; doing it here lets
+        #      us place the stub inside its sysroot first)
+        #   2. build the Khronos ICD loader for arm64 as a build-time stub
+        #   3. drop the stub + Khronos CL headers into the NDK sysroot
+        # At RUNTIME the dependency resolves to the device's own vendor
+        # libOpenCL.so (a public library on Snapdragon devices) — the stub is
+        # never shipped. Devices without a public libOpenCL.so must build with
+        # -PgpuOpencl=false (CPU-only).
+        run: |
+          set -euxo pipefail
+          NDK_VER=27.0.12077973
+          NDK="$ANDROID_HOME/ndk/$NDK_VER"
+          if [ ! -d "$NDK" ]; then
+            SDKMGR=""
+            for c in "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+                     "/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"; do
+              [ -x "$c" ] && SDKMGR="$c" && break
+            done
+            if [ -z "$SDKMGR" ]; then
+              curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/clt.zip
+              unzip -q /tmp/clt.zip -d /tmp/clt
+              SDKMGR=/tmp/clt/cmdline-tools/bin/sdkmanager
+            fi
+            yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" "ndk;$NDK_VER" >/dev/null
+          fi
+          cd "$RUNNER_TEMP"
+          git clone -q --depth 1 --branch v2026.05.29 https://github.com/KhronosGroup/OpenCL-Headers
+          git clone -q --depth 1 --branch v2026.05.29 https://github.com/KhronosGroup/OpenCL-ICD-Loader
+          cmake -S OpenCL-ICD-Loader -B icd-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=26 -DANDROID_STL=c++_static \
+            -DOPENCL_ICD_LOADER_HEADERS_DIR="$RUNNER_TEMP/OpenCL-Headers"
+          cmake --build icd-build -j "$(nproc)"
+          SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          cp -r OpenCL-Headers/CL "$SYSROOT/usr/include/"
+          cp icd-build/libOpenCL.so "$SYSROOT/usr/lib/aarch64-linux-android/"
+          mkdir -p "$SYSROOT/usr/lib/aarch64-linux-android/26"
+          cp icd-build/libOpenCL.so "$SYSROOT/usr/lib/aarch64-linux-android/26/"
+          echo "--- stub NEEDED entries (must not contain libc++_shared.so) ---"
+          readelf -d icd-build/libOpenCL.so | grep NEEDED || true
+
       - name: Cache native build
         uses: actions/cache@v4
         with:
@@ -99,4 +144,5 @@ jobs:
             * Install: sideload the APK (allow "install unknown apps"). arm64-v8a, Android 8.0+.
             * Models download on first run (LFM3-1.7B ~1 GB + bge-small embeddings 35 MB) — the APK stays ~80 MB.
             * Engine: llama.cpp @ ${{ env.LLAMA_REF }}, statically linked.
+            * GPU: OpenCL backend (Adreno-tuned) — model layers offload to the GPU automatically on Snapdragon devices. Verify in Settings → Diagnostics ("GPU: …"). Devices without a public vendor libOpenCL.so (non-Adreno) are not supported by this build.
             * Voice typing and audio-overview narration use the device speech services in this build; LFM3-Audio-2B native voice lands after the Phase 0 spike (#1).

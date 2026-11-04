@@ -74,6 +74,26 @@ void set_last_error(const std::string & msg) {
     if (!g_last_error.empty() && g_last_error.back() != '\n') g_last_error += '\n';
 }
 
+// GPU status, captured from the llama.cpp log during model load:
+//  - "ggml_opencl: default device: 'Adreno (TM) 825 (…)' (backend device scan)
+//  - "load_tensors: offloaded 25/25 layers to GPU"    (offload result)
+// Exposed via nativeGpuInfo() so Diagnostics can prove the GPU is really on.
+#if POCKET_WITH_LLAMA
+std::mutex g_gpu_mutex;
+std::string g_gpu_device;
+std::string g_gpu_offload;
+
+void set_gpu_info(const std::string & line) {
+    if (line.find("ggml_opencl: default device:") != std::string::npos) {
+        std::lock_guard<std::mutex> lk(g_gpu_mutex);
+        g_gpu_device = line;  // keep the last one
+    } else if (line.find("layers to GPU") != std::string::npos) {
+        std::lock_guard<std::mutex> lk(g_gpu_mutex);
+        g_gpu_offload = line;
+    }
+}
+#endif
+
 void clear_last_error() {
     std::lock_guard<std::mutex> lk(g_err_mutex);
     g_last_error.clear();
@@ -87,6 +107,8 @@ void pocket_log_callback(ggml_log_level level, const char * text, void *) {
     if (text == nullptr) return;
     const size_t n = strnlen(text, 1024);
     std::string line(text, n);
+    // GPU status lines arrive at INFO level — capture before the level filter.
+    set_gpu_info(line);
     // WARN = 3, ERROR = 4, CONT = 5 (continuation of the previous line).
     if (level >= GGML_LOG_LEVEL_WARN) {
         __android_log_print(level >= GGML_LOG_LEVEL_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN,
@@ -659,6 +681,32 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
     (void) id; (void) jprompt; (void) jgrammar; (void) jgrammar_root; (void) temp;
     (void) top_k; (void) top_p; (void) seed; (void) max_tokens; (void) jstop; (void) callback_id;
     return env->NewStringUTF("");
+#endif
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_pocketnotebook_app_core_native_PocketLlm_nativeGpuInfo(JNIEnv * env, jobject) {
+#if POCKET_WITH_LLAMA
+    std::lock_guard<std::mutex> lk(g_gpu_mutex);
+    std::string out;
+#if POCKET_WITH_OPENCL
+    if (!g_gpu_device.empty()) {
+        out = g_gpu_device;
+        if (!g_gpu_offload.empty()) {
+            out += "\n";
+            out += g_gpu_offload;
+        }
+    } else {
+        out = "OpenCL backend compiled in; no device reported yet "
+              "(loads after the first model load; CPU fallback otherwise).";
+    }
+#else
+    out = "CPU-only build (OpenCL backend not compiled in).";
+#endif
+    return env->NewStringUTF(out.c_str());
+#else
+    (void) env;
+    return env->NewStringUTF("kit build (no native engine).");
 #endif
 }
 
