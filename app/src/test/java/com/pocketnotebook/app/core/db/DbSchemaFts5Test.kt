@@ -81,15 +81,18 @@ class DbSchemaFts5Test {
                     assertEquals(4, rs.getInt(1))
                 }
 
-                // The exact ranking query shape the Retriever runs.
-                s.executeQuery(
+                // The exact ranking query shape the Retriever runs (bound MATCH).
+                db.prepareStatement(
                     """SELECT rowid, bm25(chunks_fts) FROM chunks_fts
                        WHERE chunks_fts MATCH ? AND rowid IN
                          (SELECT id FROM chunks WHERE notebookId = 1)
                        ORDER BY 2 LIMIT 40""",
-                ).use { rs ->
-                    assertTrue("bm25 MATCH must hit", rs.next())
-                    assertEquals(3L, rs.getLong(1)) // the "retrieval augmented generation" chunk
+                ).use { ps ->
+                    ps.setString(1, "\"retrieval augmented generation\"")
+                    ps.executeQuery().use { rs ->
+                        assertTrue("bm25 MATCH must hit", rs.next())
+                        assertEquals(3L, rs.getLong(1)) // the "retrieval augmented generation" chunk
+                    }
                 }
             }
         }
