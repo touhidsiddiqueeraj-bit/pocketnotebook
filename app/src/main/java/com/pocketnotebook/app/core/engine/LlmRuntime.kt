@@ -150,6 +150,42 @@ class LlmRuntime(
         }
     }
 
+    /**
+     * Instruction completion for Studio artifacts: wraps the prompt in the
+     * model's own chat template (system + user, assistant turn opened with
+     * thinking disabled — raw un-templated prompts made LFM3 continue the
+     * document instead of following the instruction, which is why every
+     * studio card failed in alpha.7).
+     */
+    suspend fun completeChat(
+        system: String,
+        user: String,
+        temperature: Float = 0.4f,
+        maxTokens: Int = 1000,
+        grammar: String? = null,
+        grammarRoot: String? = null,
+    ): String {
+        // Load first: the template needs the model handle. Without this the
+        // fallback raw prompt would be used even with a good model installed.
+        if (!ensureChatLoaded()) {
+            throw IllegalStateException(
+                "chat model not loaded: " +
+                    (_state.value.chatError ?: PocketLlm.lastError() ?: "load failed"),
+            )
+        }
+        val prompt = chatTemplate(
+            roles = listOf("system", "user"),
+            contents = listOf(system, user),
+        ).ifBlank { "System: $system\n\nUser: $user\n\nAssistant: " }
+        return complete(
+            prompt = prompt,
+            grammar = grammar,
+            grammarRoot = grammarRoot,
+            temperature = temperature,
+            maxTokens = maxTokens,
+        )
+    }
+
     suspend fun tokenCount(text: String): Int {
         val h = chatHandle
         if (h == 0L) return text.length / 4

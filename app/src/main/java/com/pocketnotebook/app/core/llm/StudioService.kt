@@ -23,6 +23,26 @@ class StudioService(
         isLenient = true
     }
 
+    /** Instruction system prompt for every studio generation. */
+    private val system =
+        "You are a precise offline research assistant for study materials. " +
+            "Follow the user's formatting instructions exactly. Ground every claim " +
+            "in the provided material and never invent facts."
+
+    /**
+     * Extract the outermost JSON object from raw model output. Grammar-guided
+     * generation should return pure JSON, but with the chat template applied
+     * the model sometimes pads a word or a stray character — alpha.7 marked
+     * every artifact failed on that.
+     */
+    internal fun extractJson(raw: String): String {
+        val text = Thinking.strip(raw)
+        val first = text.indexOf('{')
+        val last = text.lastIndexOf('}')
+        if (first < 0 || last <= first) throw IllegalStateException("no JSON object in model output")
+        return text.substring(first, last + 1)
+    }
+
     // ------------------------------------------------------------- payloads
 
     @Serializable
@@ -83,11 +103,14 @@ class StudioService(
                 cached
             } else {
                 val text = sourceRepo.listChunkTexts(s.id).joinToString("\n\n").take(12000)
-                val gen = runtime.complete(
-                    prompt = Prompts.summaryForDigest(s.title, text),
-                    temperature = 0.3f,
-                    maxTokens = 320,
-                ).trim()
+                val gen = Thinking.strip(
+                    runtime.completeChat(
+                        system = system,
+                        user = Prompts.summaryForDigest(s.title, text),
+                        temperature = 0.3f,
+                        maxTokens = 400,
+                    ),
+                )
                 if (gen.isNotBlank()) {
                     sourceRepo.setSummary(s.id, gen)
                     gen
@@ -113,11 +136,15 @@ class StudioService(
                 )
                 return artifactId
             }
-            val md = runtime.complete(
-                prompt = Prompts.report(kind, digestText, count),
-                temperature = 0.35f,
-                maxTokens = 900,
-            ).trim()
+            val md = Thinking.strip(
+                runtime.completeChat(
+                    system = system,
+                    user = Prompts.report(kind, digestText, count),
+                    temperature = 0.35f,
+                    maxTokens = 1100,
+                ),
+            )
+            if (md.isBlank()) throw IllegalStateException("model produced no output")
             artifactRepo.update(
                 artifactId,
                 status = ArtifactStatus.READY,
@@ -143,14 +170,15 @@ class StudioService(
                 )
                 return artifactId
             }
-            val raw = runtime.complete(
-                prompt = Prompts.mindMap(digestText, count),
+            val raw = runtime.completeChat(
+                system = system,
+                user = Prompts.mindMap(digestText, count),
+                temperature = 0.4f,
+                maxTokens = 800,
                 grammar = Grammars.mindMap,
                 grammarRoot = "root",
-                temperature = 0.4f,
-                maxTokens = 700,
             )
-            val tree = parseMindMap(raw)
+            val tree = parseMindMap(extractJson(raw))
             artifactRepo.update(
                 artifactId, status = ArtifactStatus.READY,
                 payload = json.encodeToString(MindMapNode.serializer(), tree),
@@ -162,7 +190,7 @@ class StudioService(
     }
 
     internal fun parseMindMap(raw: String): MindMapNode =
-        json.decodeFromString(MindMapNode.serializer(), raw.trim())
+        json.decodeFromString(MindMapNode.serializer(), extractJson(raw))
 
     // ------------------------------------------------------------- flashcards
 
@@ -178,14 +206,15 @@ class StudioService(
                 )
                 return artifactId
             }
-            val raw = runtime.complete(
-                prompt = Prompts.flashcards(digestText, count),
+            val raw = runtime.completeChat(
+                system = system,
+                user = Prompts.flashcards(digestText, count),
+                temperature = 0.4f,
+                maxTokens = 1100,
                 grammar = Grammars.flashcards,
                 grammarRoot = "root",
-                temperature = 0.4f,
-                maxTokens = 800,
             )
-            val parsed = json.decodeFromString(FlashcardSet.serializer(), raw.trim())
+            val parsed = json.decodeFromString(FlashcardSet.serializer(), extractJson(raw))
             if (parsed.cards.isEmpty()) throw IllegalStateException("no cards generated")
             val now = System.currentTimeMillis()
             parsed.cards.forEach { it.dueAt = now }
@@ -213,14 +242,15 @@ class StudioService(
                 )
                 return artifactId
             }
-            val raw = runtime.complete(
-                prompt = Prompts.quiz(digestText, count),
+            val raw = runtime.completeChat(
+                system = system,
+                user = Prompts.quiz(digestText, count),
+                temperature = 0.4f,
+                maxTokens = 1100,
                 grammar = Grammars.quiz,
                 grammarRoot = "root",
-                temperature = 0.4f,
-                maxTokens = 800,
             )
-            val parsed = json.decodeFromString(QuizSet.serializer(), raw.trim())
+            val parsed = json.decodeFromString(QuizSet.serializer(), extractJson(raw))
             if (parsed.questions.isEmpty()) throw IllegalStateException("no questions generated")
             artifactRepo.update(
                 artifactId, status = ArtifactStatus.READY,
@@ -249,14 +279,15 @@ class StudioService(
                 )
                 return artifactId
             }
-            val raw = runtime.complete(
-                prompt = Prompts.overviewScript(digestText, count, style),
+            val raw = runtime.completeChat(
+                system = system,
+                user = Prompts.overviewScript(digestText, count, style),
+                temperature = 0.6f,
+                maxTokens = 1600,
                 grammar = Grammars.overviewScript,
                 grammarRoot = "root",
-                temperature = 0.6f,
-                maxTokens = 1400,
             )
-            val script = json.decodeFromString(OverviewScript.serializer(), raw.trim())
+            val script = json.decodeFromString(OverviewScript.serializer(), extractJson(raw))
             if (script.segments.isEmpty()) throw IllegalStateException("empty script")
             script.style = style
             artifactRepo.update(

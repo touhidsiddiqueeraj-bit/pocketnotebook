@@ -71,7 +71,12 @@ class ChatService(
             )
         }
 
-        val cleaned = CitationRepair.stripInvalid(raw.trim(), hits.size)
+        // Second line of defense (the native engine already suppresses
+        // chain-of-thought): never persist reasoning or answer tags.
+        val cleaned = Thinking.strip(CitationRepair.stripInvalid(raw.trim(), hits.size))
+        if (cleaned.isBlank()) {
+            throw IllegalStateException("model produced no answer (reasoning only)")
+        }
         val finalText = CitationRepair.ensureFooter(cleaned, hits.size, hits.isNotEmpty())
         val citations = Retriever.citations(hits)
         chatRepo.add(notebookId, "assistant", finalText, json.encodeToString(citations))

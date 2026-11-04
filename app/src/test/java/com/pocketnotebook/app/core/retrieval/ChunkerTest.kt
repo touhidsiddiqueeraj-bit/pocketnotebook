@@ -42,6 +42,27 @@ class ChunkerTest {
         assertTrue(out.size >= 2)
         assertTrue(total.contains("yyyyy"))
     }
+
+    @Test
+    fun `default chunks stay inside the embedding model context`() {
+        // bge-small-en-v1.5 has a 512-token context (~1800 chars). Every chunk
+        // from the DEFAULT chunker must stay under that, or the native embed
+        // aborts the whole app (v0.1.0-alpha.7 file-upload crash).
+        val pathological = buildString {
+            repeat(40) {
+                append("This is one extremely long paragraph with no line breaks at all. ")
+                append("It keeps going with more and more sentence content to inflate length. ")
+            }
+        }
+        val text = pathological + "\n\n" + pathological + "\n\n" + pathological
+        val out = Chunker.chunk(text)
+        assertTrue(out.isNotEmpty())
+        out.forEachIndexed { i, c ->
+            assertTrue("chunk $i too long: ${c.text.length}", c.text.length <= 1800)
+        }
+        // no content silently dropped
+        assertTrue(out.joinToString(" ").contains("extremely long paragraph"))
+    }
 }
 
 class RrfTest {

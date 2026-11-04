@@ -30,6 +30,7 @@ import androidx.navigation.NavHostController
 import com.pocketnotebook.app.core.db.ChatMessage
 import com.pocketnotebook.app.core.db.Citation
 import com.pocketnotebook.app.core.db.ModelSlot
+import com.pocketnotebook.app.core.llm.Thinking
 import com.pocketnotebook.app.ui.Routes
 import com.pocketnotebook.app.ui.rememberContainer
 import com.pocketnotebook.app.ui.theme.GlassButton
@@ -150,7 +151,9 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
                     Column {
                         GlassPanel(corner = 22.dp, modifier = Modifier.widthIn(max = 340.dp)) {
                             Text(
-                                streamText ?: "",
+                                // Hide any reasoning artifacts that slip through
+                                // the native think filter while streaming.
+                                Thinking.strip(streamText ?: ""),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = glass.text,
                             )

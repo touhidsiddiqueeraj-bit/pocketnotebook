@@ -36,6 +36,10 @@ struct Handle {
     struct llama_context * ctx = nullptr;
     const struct llama_vocab * vocab = nullptr;
     bool embedding = false;
+    // Resolved reasoning-marker token ids (LLAMA_TOKEN_NULL when the model
+    // has no <think>/</think> protocol). Resolved lazily per handle.
+    llama_token think_open = LLAMA_TOKEN_NULL;
+    llama_token think_close = LLAMA_TOKEN_NULL;
     std::atomic<bool> abort{false};
     std::mutex mutex;
 };
@@ -47,6 +51,15 @@ bool g_backend_ready = false;
 jclass g_bridge_class = nullptr;    // com.pocketnotebook.app.core.native.PocketLlm
 jmethodID g_bridge_emit = nullptr;  // PocketLlm.emitToken(J, String)
 jmethodID g_bridge_done = nullptr;  // PocketLlm.onDone(J)
+
+// Reasoning-model think markers (byte-exact constants — never spell these as
+// string literals, tooling mangles the bytes). LFM3 / Qwen3 protocol:
+//   <think> ... </think>  — an EMPTY think block after the assistant marker
+//   means "answer directly" (the template's own enable_thinking=false path).
+#if POCKET_WITH_LLAMA
+static const char THINK_OPEN [] = {'<','t','h','i','n','k','>',0};
+static const char THINK_CLOSE[] = {'<','/','t','h','i','n','k','>',0};
+#endif
 
 // Last engine error, captured from the llama.cpp log (load failures, ctx
 // init failures, decode failures…). Surfaced to Kotlin via nativeLastError()
@@ -121,6 +134,46 @@ bool abort_cb(void * user) {
     auto * h = static_cast<Handle *>(user);
     return h->abort.load();
 }
+
+#if POCKET_WITH_LLAMA
+// Does this model's chat template use the <think>/</think> protocol?
+// (LFM3, Qwen3 and friends.) The template string literally contains the
+// marker literals when it does.
+static bool template_has_think_protocol(const char * tmpl) {
+    if (tmpl == nullptr) return false;
+    const std::string t(tmpl);
+    return t.find(THINK_OPEN) != std::string::npos &&
+           t.find(THINK_CLOSE) != std::string::npos;
+}
+
+// Resolve the marker token ids by exact-text vocab scan. These tokens are
+// type-UNDEFINED in some GGUFs (the tokenizer never emits them from text),
+// so tokenize() cannot find them — but the model was trained to sample them.
+static void resolve_think_tokens(Handle * h) {
+    if (h->think_open != LLAMA_TOKEN_NULL) return;
+    const int32_t n_vocab = llama_vocab_n_tokens(h->vocab);
+    for (llama_token id = 0; id < n_vocab; id++) {
+        const char * txt = llama_vocab_get_text(h->vocab, id);
+        if (txt == nullptr) continue;
+        if (strcmp(txt, THINK_OPEN) == 0) h->think_open = id;
+        else if (strcmp(txt, THINK_CLOSE) == 0) h->think_close = id;
+    }
+}
+
+// Render a token's full text (special tokens included) into a small buffer.
+static std::string token_full_text(const struct llama_vocab * vocab, llama_token tok) {
+    char piece[128];
+    const int n = llama_token_to_piece(vocab, tok, piece, sizeof(piece), 0, true);
+    if (n <= 0) return {};
+    return std::string(piece, (size_t) n);
+}
+
+// Embedding contexts decode the whole sequence in one batch (non-causal):
+// never hand llama_decode more tokens than the context's n_batch.
+static int32_t n_batch_limit(const Handle * h) {
+    return 1024;
+}
+#endif
 
 void emit_piece(JNIEnv * env, int64_t callback_id, const std::string & piece) {
     if (callback_id == 0 || g_bridge_class == nullptr) return;
@@ -293,6 +346,9 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeLoadModel(JNIEnv * env, 
 JNIEXPORT void JNICALL
 Java_com_pocketnotebook_app_core_native_PocketLlm_nativeUnload(JNIEnv *, jobject, jlong id) {
 #if POCKET_WITH_LLAMA
+    // Take the handle out of the map first, then wait for any in-flight
+    // decode on it (h->mutex) before freeing — freeing a context mid-decode
+    // is a use-after-free (abort callback + KV cache still in use).
     Handle * h = nullptr;
     {
         std::lock_guard<std::mutex> lk(g_map_mutex);
@@ -300,8 +356,11 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeUnload(JNIEnv *, jobject
         if (it != g_handles.end()) { h = it->second; g_handles.erase(it); }
     }
     if (h) {
-        llama_free(h->ctx);
-        llama_model_free(h->model);
+        {
+            std::lock_guard<std::mutex> lk2(h->mutex);
+            llama_free(h->ctx);
+            llama_model_free(h->model);
+        }
         delete h;
         LOGI("unloaded handle %lld", (long long) id);
     }
@@ -411,6 +470,16 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeApplyTemplate(JNIEnv * e
         if (need < 0) return env->NewStringUTF("");
     }
     buf.resize((size_t) need);
+
+    // Reasoning models: end the assistant turn with an EMPTY think block so
+    // the model answers directly instead of streaming its chain-of-thought
+    // (the template's own enable_thinking=false branch — llama.cpp's template
+    // formatter ignores that flag, so we apply it ourselves). nativeComplete
+    // swaps this trailing text for the canonical marker token ids.
+    if (add_assist == JNI_TRUE && template_has_think_protocol(tmpl)) {
+        buf += THINK_OPEN;
+        buf += THINK_CLOSE;
+    }
     return env->NewStringUTF(buf.c_str());
 #else
     (void) id; (void) roles; (void) contents; (void) add_assist;
@@ -442,6 +511,28 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
     std::vector<llama_token> tokens;
     tokenize(h->vocab, prompt, false, true, tokens); // template output already carries specials
     if (tokens.empty()) { set_last_error("prompt tokenization failed"); return env->NewStringUTF(""); }
+
+    // Canonicalize the trailing empty-think-block: nativeApplyTemplate appended
+    // the OFF markers as TEXT (the tokenizer cannot emit the marker token ids
+    // from text — they are undefined-type in some GGUFs). Swap the trailing
+    // text tokens for the canonical marker tokens so the model sees exactly
+    // what its own template would have produced.
+    resolve_think_tokens(h);
+    if (h->think_open != LLAMA_TOKEN_NULL && h->think_close != LLAMA_TOKEN_NULL &&
+        tokens.size() >= 2) {
+        const std::string offseq = std::string(THINK_OPEN) + THINK_CLOSE;
+        for (size_t k = 2; k <= 8 && k <= tokens.size(); k++) {
+            std::string joined;
+            for (size_t i = tokens.size() - k; i < tokens.size(); i++)
+                joined += token_full_text(h->vocab, tokens[i]);
+            if (joined == offseq) {
+                tokens.resize(tokens.size() - k);
+                tokens.push_back(h->think_open);
+                tokens.push_back(h->think_close);
+                break;
+            }
+        }
+    }
 
     // Chunked prefill: llama.cpp hard-asserts n_tokens <= n_batch, and a
     // grounded prompt with sources can be thousands of tokens. Feed the
@@ -492,41 +583,67 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
 
     // Prompt is already decoded (chunked prefill above): sample from the
     // last position, then decode one token at a time.
+    //
+    // Hidden chain-of-thought: if the model still opens a think block (it
+    // should not — the prompt ends with an empty one — but any model can),
+    // everything inside is suppressed from output, emission and the
+    // max_tokens budget; only a hard cap bounds runaway reasoning.
     int32_t used = (int32_t) tokens.size();
-    int32_t generated = 0;
+    int32_t visible = 0;        // tokens that count toward max_tokens
+    int32_t generated = 0;      // all sampled tokens (hard-capped)
+    const int32_t hard_cap = max_tokens + 2048;
+    bool in_think = false;
 
-    while (generated < max_tokens && used + 4 < n_ctx) {
+    while (visible < max_tokens && generated < hard_cap && used + 4 < n_ctx) {
         if (h->abort.load()) break;
         const llama_token tok = llama_sampler_sample(chain, h->ctx, -1);
         if (tok == eos || tok == eot) {
             if (!out.empty() || eos_skips >= 3) break;
             eos_skips++;
-            continue; // do not feed it; resample
+            continue; // do not feed it; resample from the same logits
         }
         eos_skips = 0;
+        generated++;
 
-        char piece[96];
-        const int pn = llama_token_to_piece(h->vocab, tok, piece, sizeof(piece), 0, false);
-        if (pn > 0) out.append(piece, (size_t) pn);
-
-        if (!stop.empty() && out.size() >= stop.size() &&
-            out.compare(out.size() - stop.size(), stop.size(), stop) == 0) {
-            out.resize(out.size() - stop.size());
-            break;
+        // Hidden chain-of-thought: markers and reasoning are suppressed from
+        // the output/emission/budget, but still DECODED (the model must see
+        // its own tokens in context, and skipping the decode would re-sample
+        // stale logits forever).
+        bool suppressed_token = false;
+        if (h->think_open != LLAMA_TOKEN_NULL && tok == h->think_open) {
+            in_think = true;
+            suppressed_token = true;
+        } else if (h->think_close != LLAMA_TOKEN_NULL && tok == h->think_close) {
+            in_think = false;
+            suppressed_token = true;
+        } else if (in_think) {
+            suppressed_token = true;
         }
 
-        if (callback_id != 0 && pn > 0) {
-            emit_piece(env, (int64_t) callback_id, std::string(piece, (size_t) pn));
+        if (!suppressed_token) {
+            char piece[96];
+            const int pn = llama_token_to_piece(h->vocab, tok, piece, sizeof(piece), 0, false);
+            if (pn > 0) out.append(piece, (size_t) pn);
+
+            if (!stop.empty() && out.size() >= stop.size() &&
+                out.compare(out.size() - stop.size(), stop.size(), stop) == 0) {
+                out.resize(out.size() - stop.size());
+                break;
+            }
+
+            if (callback_id != 0 && pn > 0) {
+                emit_piece(env, (int64_t) callback_id, std::string(piece, (size_t) pn));
+            }
+            visible++;
         }
 
         used++;
-        generated++;
 
         llama_token cur = tok;
         llama_batch batch = llama_batch_get_one(&cur, 1);
         if (llama_decode(h->ctx, batch) != 0) {
-            set_last_error("decode failed during generation (gen=" + std::to_string(generated) + ")");
-            LOGI("decode ended early (abort or ctx full), gen=%d", generated);
+            set_last_error("decode failed during generation (gen=" + std::to_string(visible) + ")");
+            LOGI("decode ended early (abort or ctx full), gen=%d", visible);
             break;
         }
     }
@@ -536,7 +653,7 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
         env->CallStaticVoidMethod(g_bridge_class, g_bridge_done, (jlong) callback_id);
         if (env->ExceptionCheck()) env->ExceptionClear();
     }
-    LOGI("completion done: %d tokens, %zu chars", generated, out.size());
+    LOGI("completion done: %d visible tokens, %zu chars", visible, out.size());
     return env->NewStringUTF(out.c_str());
 #else
     (void) id; (void) jprompt; (void) jgrammar; (void) jgrammar_root; (void) temp;
@@ -572,8 +689,29 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeEmbed(JNIEnv * env, jobj
     tokenize(h->vocab, text, true, false, tokens);
     if (tokens.empty()) return env->NewFloatArray(0);
     const llama_token eos = llama_vocab_eos(h->vocab);
-    if (tokens.back() != eos) tokens.push_back(eos);
-    if (tokens.size() > 1024) tokens.resize(1024); // guard: keep inside embed ctx
+    if (eos != LLAMA_TOKEN_NULL && tokens.back() != eos) tokens.push_back(eos);
+
+    // THE CRASH FIX (v0.1.0-alpha.7 crashed on file upload): embedding
+    // models like bge-small have n_ctx_train = 512 — their position-embedding
+    // table has 512 rows. Feeding one token past that hit
+    //   GGML_ASSERT(i01 >= 0 && i01 < ne01)  (ggml-cpu/ops.cpp get_rows)
+    //   -> abort() -> whole app dead mid-ingest.
+    // Cap the sequence to the model's real limit (minus the eos we appended).
+    // Long tails are covered by BM25 and the chunk overlap.
+    const int32_t n_ctx_train = (int32_t) llama_model_n_ctx_train(h->model);
+    const int32_t n_ctx_now   = (int32_t) llama_n_ctx(h->ctx);
+    const int32_t limit       = (std::min(n_ctx_now, n_ctx_train) > 1)
+                              ? std::min(n_ctx_now, n_ctx_train) - 1
+                              : 1;
+    if ((int32_t) tokens.size() > limit) {
+        LOGI("embed truncated %zu -> %d tokens (model ctx_train=%d)",
+             tokens.size(), limit, n_ctx_train);
+        tokens.resize((size_t) limit);
+        if (!tokens.empty() && tokens.back() != eos && eos != LLAMA_TOKEN_NULL)
+            tokens.back() = eos;
+    }
+    if (tokens.empty() || (int32_t) tokens.size() > n_batch_limit(h))
+        return env->NewFloatArray(0);
 
     llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
     if (llama_decode(h->ctx, batch) != 0) {

@@ -1,14 +1,21 @@
 package com.pocketnotebook.app.core.retrieval
 
 /**
- * Paragraph-aware chunker (~400 tokens ≈ 1600 chars) with ~15% overlap.
- * Provenance (ordinal) is preserved for citation jumps.
+ * Paragraph-aware chunker with ~15% overlap.
+ *
+ * Chunk targets are sized for the EMBEDDING model, not the chat model:
+ * bge-small-en-v1.5 has a 512-token context (position-embedding table has
+ * 512 rows). Chunks used to reach ~3200 chars ≈ 800 tokens, and every one
+ * of those hit GGML_ASSERT in ggml get_rows → abort() → the whole app died
+ * mid-upload (v0.1.0-alpha.7). Target 900 chars ≈ 230 tokens, hard-split at
+ * 1800 ≈ 450 tokens — always under the limit even for pathological
+ * single-paragraph text (the native embed also caps defensively).
  */
 object Chunker {
 
     data class Chunk(val ordinal: Int, val text: String)
 
-    fun chunk(text: String, target: Int = 1600, overlap: Int = 240): List<Chunk> {
+    fun chunk(text: String, target: Int = 900, overlap: Int = 140): List<Chunk> {
         val normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         val paragraphs = normalized.split(Regex("\\n\\s*\\n"))
             .map { it.trim() }
