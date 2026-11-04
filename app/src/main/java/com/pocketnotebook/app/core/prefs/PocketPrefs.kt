@@ -45,4 +45,9 @@ class PocketPrefs(context: Context) {
     var threadCount: Int
         get() = sp.getInt("gen_threads", 0) // 0 = auto (big.little aware)
         set(v) = sp.edit().putInt("gen_threads", v).apply()
+
+    /** KV-cache quantization for the chat model: 0 = F16, 4 = Q4_0, 8 = Q8_0. */
+    var kvQuant: Int
+        get() = sp.getInt("gen_kv_quant", 4)
+        set(v) = sp.edit().putInt("gen_kv_quant", v).apply()
 }

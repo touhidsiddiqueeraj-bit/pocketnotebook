@@ -31,6 +31,16 @@ object PocketLlm {
         t.message ?: t.toString()
     }
 
+    /** Last engine error (model load / context init / decode), or null. */
+    fun lastError(): String? {
+        if (!libLoaded) return loadError
+        return try {
+            nativeLastError().ifBlank { null }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     /** True when the native lib was mapped into the process. */
     val libLoaded: Boolean get() = loadError == null
 
@@ -68,7 +78,10 @@ object PocketLlm {
 
     external fun nativePing(): Int
     external fun nativeBackendInit()
-    external fun nativeLoadModel(path: String, nCtx: Int, nThreads: Int, embedding: Boolean): Long
+    external fun nativeLastError(): String
+    external fun nativeLoadModel(
+        path: String, nCtx: Int, nThreads: Int, embedding: Boolean, kvQuant: Int,
+    ): Long
     external fun nativeUnload(id: Long)
     external fun nativeMeta(id: Long): String
     external fun nativeTokenCount(id: Long, text: String): Int

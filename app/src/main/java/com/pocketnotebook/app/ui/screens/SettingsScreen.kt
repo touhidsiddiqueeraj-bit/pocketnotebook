@@ -45,6 +45,7 @@ fun SettingsScreen(nav: NavHostController) {
     var temp by remember { mutableStateOf(prefs.temperature) }
     var ctxLen by remember { mutableStateOf(prefs.contextLength) }
     var maxTok by remember { mutableStateOf(prefs.maxTokens) }
+    var kvQuant by remember { mutableStateOf(prefs.kvQuant) }
     var storage by remember { mutableStateOf(dirSize(container.runtime.modelsDir())) }
     val runtimeState by container.runtime.state.collectAsState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -103,6 +104,26 @@ fun SettingsScreen(nav: NavHostController) {
                     GlassChip("4k", selected = ctxLen == 4096, onClick = { ctxLen = 4096; prefs.contextLength = 4096 })
                     GlassChip("8k", selected = ctxLen == 8192, onClick = { ctxLen = 8192; prefs.contextLength = 8192 })
                     GlassChip("16k", selected = ctxLen == 16384, onClick = { ctxLen = 16384; prefs.contextLength = 16384 })
+                    GlassChip("32k", selected = ctxLen == 32768, onClick = { ctxLen = 32768; prefs.contextLength = 32768 })
+                }
+                Text(
+                    "KV cache quantization — smaller cache, longer context fits in RAM. Applies after reload.",
+                    style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                    GlassChip("F16", selected = kvQuant == 0, onClick = {
+                        kvQuant = 0; prefs.kvQuant = 0
+                        scope.launch { container.runtime.unloadChat() }
+                    })
+                    GlassChip("Q8_0", selected = kvQuant == 8, onClick = {
+                        kvQuant = 8; prefs.kvQuant = 8
+                        scope.launch { container.runtime.unloadChat() }
+                    })
+                    GlassChip("Q4_0", selected = kvQuant == 4, onClick = {
+                        kvQuant = 4; prefs.kvQuant = 4
+                        scope.launch { container.runtime.unloadChat() }
+                    })
                 }
                 Text("Answer budget — $maxTok tokens", style = MaterialTheme.typography.titleSmall, color = glass.text, modifier = Modifier.padding(top = 10.dp))
                 androidx.compose.material3.Slider(
@@ -125,9 +146,22 @@ fun SettingsScreen(nav: NavHostController) {
                     else "Chat model: not loaded",
                     style = MaterialTheme.typography.bodyMedium, color = glass.text,
                 )
+                runtimeState.chatError?.let {
+                    Text(
+                        it.take(300),
+                        style = MaterialTheme.typography.bodySmall, color = glass.accent3,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     GlassButton("Diagnostics", onClick = {
                         nav.navigate(com.pocketnotebook.app.ui.Routes.DIAGNOSTICS)
+                    })
+                    GlassButton("Reload", onClick = {
+                        scope.launch {
+                            container.runtime.unloadChat()
+                            container.runtime.ensureChatLoaded()
+                        }
                     })
                 }
             }

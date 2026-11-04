@@ -31,6 +31,7 @@ class LlmRuntime(
         val chatPath: String? = null,
         val chatMeta: PocketLlm.Meta? = null,
         val chatLoading: Boolean = false,
+        val chatError: String? = null,
         val embedPath: String? = null,
         val embedLoading: Boolean = false,
         val generating: Boolean = false,
@@ -78,7 +79,7 @@ class LlmRuntime(
             _state.value = _state.value.copy(chatLoading = true)
             val ok = withContext(Dispatchers.IO) {
                 PocketLlm.nativeBackendInit()
-                val h = PocketLlm.nativeLoadModel(path, autoContext(), threads, false)
+                val h = PocketLlm.nativeLoadModel(path, autoContext(), threads, false, prefs.kvQuant)
                 chatHandle = h
                 h != 0L
             }
@@ -86,6 +87,7 @@ class LlmRuntime(
                 chatLoading = false,
                 chatPath = if (ok) path else null,
                 chatMeta = if (ok) PocketLlm.meta(chatHandle) else null,
+                chatError = if (ok) null else (PocketLlm.lastError() ?: "model load failed"),
             )
             ok
         }
@@ -97,7 +99,7 @@ class LlmRuntime(
                 withContext(Dispatchers.IO) { PocketLlm.nativeUnload(chatHandle) }
                 chatHandle = 0
             }
-            _state.value = _state.value.copy(chatPath = null, chatMeta = null)
+            _state.value = _state.value.copy(chatPath = null, chatMeta = null, chatError = null)
         }
     }
 
@@ -116,7 +118,7 @@ class LlmRuntime(
             _state.value = _state.value.copy(embedLoading = true)
             val ok = withContext(Dispatchers.IO) {
                 PocketLlm.nativeBackendInit()
-                val h = PocketLlm.nativeLoadModel(path, 1024, threads, true)
+                val h = PocketLlm.nativeLoadModel(path, 1024, threads, true, 0)
                 embedHandle = h
                 h != 0L
             }

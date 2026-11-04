@@ -105,9 +105,10 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
                 GlassButton("Get model", primary = true, onClick = { nav.navigate(Routes.MODELS) })
             }
             runtimeState.chatLoading -> Banner("Loading model…")
-            runtimeState.chatPath == null && !runtimeState.generating -> Banner("Model not loaded.") {
-                GlassButton("Retry", onClick = { scope.launch { container.runtime.ensureChatLoaded() } })
-            }
+            runtimeState.chatPath == null && !runtimeState.generating ->
+                Banner((runtimeState.chatError ?: "Model not loaded.").take(240)) {
+                    GlassButton("Retry", onClick = { scope.launch { container.runtime.ensureChatLoaded() } })
+                }
         }
 
         // ---------------- conversation ----------------

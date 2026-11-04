@@ -48,6 +48,43 @@ jclass g_bridge_class = nullptr;    // com.pocketnotebook.app.core.native.Pocket
 jmethodID g_bridge_emit = nullptr;  // PocketLlm.emitToken(J, String)
 jmethodID g_bridge_done = nullptr;  // PocketLlm.onDone(J)
 
+// Last engine error, captured from the llama.cpp log (load failures, ctx
+// init failures, decode failures…). Surfaced to Kotlin via nativeLastError()
+// so the UI can show WHY the model is dead instead of failing silently.
+std::mutex g_err_mutex;
+std::string g_last_error;
+
+void set_last_error(const std::string & msg) {
+    std::lock_guard<std::mutex> lk(g_err_mutex);
+    if (g_last_error.size() > 2048) g_last_error.clear(); // keep the tail fresh
+    g_last_error += msg;
+    if (!g_last_error.empty() && g_last_error.back() != '\n') g_last_error += '\n';
+}
+
+void clear_last_error() {
+    std::lock_guard<std::mutex> lk(g_err_mutex);
+    g_last_error.clear();
+}
+
+// Forward llama.cpp logs to logcat; remember ERROR/WARN lines as the
+// user-facing failure reason (llama.cpp reports load failures only through
+// this log — its C API just returns nullptr).
+#if POCKET_WITH_LLAMA
+void pocket_log_callback(ggml_log_level level, const char * text, void *) {
+    if (text == nullptr) return;
+    const size_t n = strnlen(text, 1024);
+    std::string line(text, n);
+    // WARN = 3, ERROR = 4, CONT = 5 (continuation of the previous line).
+    if (level >= GGML_LOG_LEVEL_WARN) {
+        __android_log_print(level >= GGML_LOG_LEVEL_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN,
+                            TAG, "%s", line.c_str());
+        set_last_error(line);
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, TAG, "%s", line.c_str());
+    }
+}
+#endif
+
 std::string jstr(JNIEnv * env, jstring s) {
     if (!s) return {};
     const char * c = env->GetStringUTFChars(s, nullptr);
@@ -137,6 +174,8 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeBackendInit(JNIEnv * env
 #if POCKET_WITH_LLAMA
     if (g_backend_ready) return;
     llama_backend_init();
+    llama_log_set(pocket_log_callback, nullptr);
+    clear_last_error();
     jclass local = env->FindClass("com/pocketnotebook/app/core/native/PocketLlm");
     if (local != nullptr) {
         g_bridge_class = (jclass) env->NewGlobalRef(local);
@@ -151,15 +190,37 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeBackendInit(JNIEnv * env
 #endif
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_pocketnotebook_app_core_native_PocketLlm_nativeLastError(JNIEnv * env, jobject) {
+    std::lock_guard<std::mutex> lk(g_err_mutex);
+    std::string out;
+    // Keep only the last few lines — the reason is at the end of the log.
+    const size_t n = g_last_error.size();
+    if (n > 600) {
+        out = g_last_error.substr(n - 600);
+        const size_t nl = out.find('\n');
+        if (nl != std::string::npos) out = out.substr(nl + 1);
+    } else {
+        out = g_last_error;
+    }
+    while (!out.empty() && (out.back() == '\n' || out.back() == ' ')) out.pop_back();
+    return env->NewStringUTF(out.c_str());
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_pocketnotebook_app_core_native_PocketLlm_nativeLoadModel(JNIEnv * env, jobject,
-        jstring jpath, jint n_ctx, jint n_threads, jboolean embedding) {
+        jstring jpath, jint n_ctx, jint n_threads, jboolean embedding, jint kv_quant) {
 #if POCKET_WITH_LLAMA
-    if (!g_backend_ready) return 0;
+    if (!g_backend_ready) { set_last_error("backend not initialized"); return 0; }
     std::string path = jstr(env, jpath);
+    clear_last_error();
     auto mp = llama_model_default_params();
     struct llama_model * model = llama_model_load_from_file(path.c_str(), mp);
-    if (!model) { LOGE("load failed: %s", path.c_str()); return 0; }
+    if (!model) {
+        set_last_error("model load failed: " + path);
+        LOGE("load failed: %s", path.c_str());
+        return 0;
+    }
 
     auto * h = new (std::nothrow) Handle();
     if (!h) { llama_model_free(model); return 0; }
@@ -167,20 +228,51 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeLoadModel(JNIEnv * env, 
 
     auto cp = llama_context_default_params();
     cp.n_ctx = (uint32_t) n_ctx;
-    cp.n_batch = 1024;
-    cp.n_ubatch = 1024;
+    // Non-causal (embedding) contexts must fit the whole sequence in one
+    // ubatch (GGML_ASSERT), and embed inputs are capped at 1024 tokens —
+    // keep their ubatch at 1024. Causal chat contexts prefill in 512-token
+    // chunks (see nativeComplete) so a small ubatch trims compute buffers.
+    if (embedding == JNI_TRUE) {
+        cp.n_batch = 1024;
+        cp.n_ubatch = 1024;
+    } else {
+        cp.n_batch = 2048;
+        cp.n_ubatch = 512;
+    }
     cp.n_threads = n_threads;
     cp.n_threads_batch = n_threads;
+    // KV-cache quantization: 0 = F16, 4 = Q4_0, 8 = Q8_0. Quantized K/V
+    // shrinks the cache ~4x/~2x so long contexts fit in RAM. Quantized V
+    // requires Flash Attention — llama.cpp enforces this; we enable FA for
+    // every quantized request (and it is faster on CPU anyway).
+    if (kv_quant == 4) {
+        cp.type_k = GGML_TYPE_Q4_0;
+        cp.type_v = GGML_TYPE_Q4_0;
+        cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    } else if (kv_quant == 8) {
+        cp.type_k = GGML_TYPE_Q8_0;
+        cp.type_v = GGML_TYPE_Q8_0;
+        cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    }
     if (embedding == JNI_TRUE) {
         cp.embeddings = true;
         cp.pooling_type = LLAMA_POOLING_TYPE_MEAN;
         cp.attention_type = LLAMA_ATTENTION_TYPE_NON_CAUSAL;
+        cp.type_k = GGML_TYPE_F16; // exact embeddings; tiny ctx anyway
+        cp.type_v = GGML_TYPE_F16;
     }
     cp.abort_callback = abort_cb;
     cp.abort_callback_data = h;
 
     struct llama_context * ctx = llama_init_from_model(model, cp);
-    if (!ctx) { LOGE("ctx init failed"); llama_model_free(model); delete h; return 0; }
+    if (!ctx) {
+        set_last_error("context init failed (ctx=" + std::to_string(n_ctx) +
+                       ", kv=" + std::to_string(kv_quant) + ")");
+        LOGE("ctx init failed");
+        llama_model_free(model);
+        delete h;
+        return 0;
+    }
 
     h->ctx = ctx;
     h->vocab = llama_model_get_vocab(model);
@@ -189,11 +281,11 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeLoadModel(JNIEnv * env, 
     std::lock_guard<std::mutex> lk(g_map_mutex);
     const int64_t id = ++g_next_id;
     g_handles[id] = h;
-    LOGI("loaded handle %lld (%s, ctx=%d, threads=%d)",
-         (long long) id, path.c_str(), (int) n_ctx, (int) n_threads);
+    LOGI("loaded handle %lld (%s, ctx=%d, threads=%d, kv=%d)",
+         (long long) id, path.c_str(), (int) n_ctx, (int) n_threads, (int) kv_quant);
     return (jlong) id;
 #else
-    (void) env; (void) jpath; (void) n_ctx; (void) n_threads; (void) embedding;
+    (void) env; (void) jpath; (void) n_ctx; (void) n_threads; (void) embedding; (void) kv_quant;
     return 0;
 #endif
 }
@@ -337,6 +429,10 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
 
     std::lock_guard<std::mutex> lk(h->mutex);
     h->abort.store(false);
+    // Fresh KV cache per completion: each call carries the full prompt, so
+    // without this the cache would accumulate every previous question until
+    // the context overflows (question 2+ would silently return "").
+    llama_memory_clear(llama_get_memory(h->ctx), true);
 
     std::string prompt = jstr(env, jprompt);
     std::string grammar = jstr(env, jgrammar);
@@ -345,7 +441,29 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
 
     std::vector<llama_token> tokens;
     tokenize(h->vocab, prompt, false, true, tokens); // template output already carries specials
-    if (tokens.empty()) return env->NewStringUTF("");
+    if (tokens.empty()) { set_last_error("prompt tokenization failed"); return env->NewStringUTF(""); }
+
+    // Chunked prefill: llama.cpp hard-asserts n_tokens <= n_batch, and a
+    // grounded prompt with sources can be thousands of tokens. Feed the
+    // prompt through in <=512-token chunks so any prompt size works.
+    bool prefill_failed = false;
+    {
+        const int32_t total = (int32_t) tokens.size();
+        int32_t pos = 0;
+        while (pos < total) {
+            if (h->abort.load()) { prefill_failed = true; set_last_error("aborted"); break; }
+            const int32_t chunk = total - pos < 512 ? total - pos : 512;
+            llama_batch pbatch = llama_batch_get_one(tokens.data() + pos, chunk);
+            if (llama_decode(h->ctx, pbatch) != 0) {
+                prefill_failed = true;
+                set_last_error("decode failed during prefill (ctx full? " +
+                               std::to_string(total) + " prompt tokens)");
+                break;
+            }
+            pos += chunk;
+        }
+    }
+    if (prefill_failed) return env->NewStringUTF("");
 
     auto sp = llama_sampler_chain_default_params();
     struct llama_sampler * chain = llama_sampler_chain_init(sp);
@@ -361,23 +479,31 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
         if (g) llama_sampler_chain_add(chain, g);
     }
 
+    // Stop on end-of-sentence / end-of-turn — but never accept an immediate
+    // eos with zero output (a template mismatch can make the model emit eos
+    // as its very first token; skipping a few of those keeps the answer
+    // alive instead of silently returning "").
     const llama_token eos = llama_vocab_eos(h->vocab);
+    const llama_token eot = llama_vocab_eot(h->vocab);
+    int eos_skips = 0;
     const int32_t n_ctx = (int32_t) llama_n_ctx(h->ctx);
     std::string out;
     out.reserve(4096);
 
-    llama_token cur = tokens[0];
-    llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
+    // Prompt is already decoded (chunked prefill above): sample from the
+    // last position, then decode one token at a time.
     int32_t used = (int32_t) tokens.size();
     int32_t generated = 0;
 
     while (generated < max_tokens && used + 4 < n_ctx) {
-        if (llama_decode(h->ctx, batch) != 0) {
-            LOGI("decode ended early (abort or ctx full), gen=%d", generated);
-            break;
-        }
+        if (h->abort.load()) break;
         const llama_token tok = llama_sampler_sample(chain, h->ctx, -1);
-        if (tok == eos) break;
+        if (tok == eos || tok == eot) {
+            if (!out.empty() || eos_skips >= 3) break;
+            eos_skips++;
+            continue; // do not feed it; resample
+        }
+        eos_skips = 0;
 
         char piece[96];
         const int pn = llama_token_to_piece(h->vocab, tok, piece, sizeof(piece), 0, false);
@@ -395,8 +521,14 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
 
         used++;
         generated++;
-        cur = tok;
-        batch = llama_batch_get_one(&cur, 1);
+
+        llama_token cur = tok;
+        llama_batch batch = llama_batch_get_one(&cur, 1);
+        if (llama_decode(h->ctx, batch) != 0) {
+            set_last_error("decode failed during generation (gen=" + std::to_string(generated) + ")");
+            LOGI("decode ended early (abort or ctx full), gen=%d", generated);
+            break;
+        }
     }
 
     llama_sampler_free(chain);
@@ -432,6 +564,8 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeEmbed(JNIEnv * env, jobj
 
     std::lock_guard<std::mutex> lk(h->mutex);
     h->abort.store(false);
+    // Fresh KV cache per embedding call (single non-causal sequence).
+    llama_memory_clear(llama_get_memory(h->ctx), true);
 
     std::string text = jstr(env, jtext);
     std::vector<llama_token> tokens;
@@ -444,6 +578,7 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeEmbed(JNIEnv * env, jobj
     llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
     if (llama_decode(h->ctx, batch) != 0) {
         LOGE("embed decode failed");
+        set_last_error("embed decode failed");
         return env->NewFloatArray(0);
     }
     const int32_t n_embd = llama_model_n_embd(h->model);
