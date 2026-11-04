@@ -1,9 +1,8 @@
 package com.pocketnotebook.app.core.db
 
 import android.content.ContentValues
-import android.database.sqlite.SQLiteDatabase
 
-class ChatRepo(private val db: SQLiteDatabase) {
+class ChatRepo(private val db: SqlDb) {
 
     fun add(notebookId: Long, role: String, content: String, cites: String?): Long =
         db.insert("messages", null, ContentValues().apply {
@@ -18,7 +17,7 @@ class ChatRepo(private val db: SQLiteDatabase) {
         db.rawQuery(
             "SELECT id, notebookId, role, content, cites, createdAt FROM messages " +
                 "WHERE notebookId = ? ORDER BY id DESC LIMIT ?",
-            arrayOf(notebookId.toString(), limit.toString()),
+            arrayOf(notebookId, limit),
         ).use { c ->
             val out = ArrayList<ChatMessage>()
             while (c.moveToNext()) {

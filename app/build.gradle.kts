@@ -20,7 +20,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("versionCode").getOrElse("1").toInt()
-        versionName = providers.gradleProperty("versionName").getOrElse("0.1.0-alpha.2")
+        versionName = providers.gradleProperty("versionName").getOrElse("0.1.0-alpha.3")
         vectorDrawables { useSupportLibrary = true }
 
         ndk {
@@ -125,6 +125,14 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.documentfile)
+
+    // Bundled SQLite 3.50.1 (FTS5, 16 KB-page aligned) — Android's system SQLite
+    // ships without FTS5 on every vendor incl. Android 15/16 ("no such module:
+    // fts5" crash of v0.1.0-alpha.2), so the app bundles its own engine.
+    implementation(libs.androidx.sqlite)
+    implementation(libs.androidx.sqlite.bundled)
+    // Real-FTS5 engine for the JVM schema regression test only.
+    testImplementation(libs.xerial.sqlite.jdbc)
 
     implementation(libs.com.tom.roush.pdfbox)
     implementation(libs.org.jsoup)

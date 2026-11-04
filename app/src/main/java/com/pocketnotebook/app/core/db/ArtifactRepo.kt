@@ -1,9 +1,8 @@
 package com.pocketnotebook.app.core.db
 
 import android.content.ContentValues
-import android.database.sqlite.SQLiteDatabase
 
-class ArtifactRepo(private val db: SQLiteDatabase) {
+class ArtifactRepo(private val db: SqlDb) {
 
     fun create(notebookId: Long, kind: String, title: String): Long =
         db.insert("artifacts", null, ContentValues().apply {
@@ -49,7 +48,7 @@ class ArtifactRepo(private val db: SQLiteDatabase) {
         db.execSQL("DELETE FROM artifacts WHERE id = ?", arrayOf(id))
     }
 
-    private fun rowToArtifact(c: android.database.Cursor) = Artifact(
+    private fun rowToArtifact(c: StmtCursor) = Artifact(
         id = c.getLong(0), notebookId = c.getLong(1), kind = c.getString(2), title = c.getString(3),
         status = c.getString(4), payload = if (c.isNull(5)) null else c.getString(5),
         audioDir = if (c.isNull(6)) null else c.getString(6),

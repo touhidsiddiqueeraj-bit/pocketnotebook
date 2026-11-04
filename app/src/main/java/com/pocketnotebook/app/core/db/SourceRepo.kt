@@ -1,11 +1,10 @@
 package com.pocketnotebook.app.core.db
 
 import android.content.ContentValues
-import android.database.sqlite.SQLiteDatabase
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-class SourceRepo(private val db: SQLiteDatabase) {
+class SourceRepo(private val db: SqlDb) {
 
     // ---- sources -----------------------------------------------------------
 
@@ -163,13 +162,13 @@ class SourceRepo(private val db: SQLiteDatabase) {
 
     // ---- helpers -----------------------------------------------------------
 
-    private fun mapChunkRows(c: android.database.Cursor): List<ChunkRow> {
+    private fun mapChunkRows(c: StmtCursor): List<ChunkRow> {
         val out = ArrayList<ChunkRow>()
         while (c.moveToNext()) out += rowToChunk(c)
         return out
     }
 
-    private fun rowToChunk(c: android.database.Cursor) = ChunkRow(
+    private fun rowToChunk(c: StmtCursor) = ChunkRow(
         id = c.getLong(0), sourceId = c.getLong(1), notebookId = c.getLong(2),
         ordinal = c.getInt(3), text = c.getString(4),
     )

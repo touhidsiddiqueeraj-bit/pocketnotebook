@@ -1,6 +1,6 @@
 package com.pocketnotebook.app.core.retrieval
 
-import android.database.sqlite.SQLiteDatabase
+import com.pocketnotebook.app.core.db.SqlDb
 import com.pocketnotebook.app.core.db.ChunkRow
 import com.pocketnotebook.app.core.db.Citation
 import com.pocketnotebook.app.core.db.SourceRepo
@@ -12,7 +12,7 @@ import com.pocketnotebook.app.core.retrieval.Rrf.fuse
  * ~30k chunks → sub-300 ms on a phone (brute force is fine at this scale).
  */
 class Retriever(
-    private val db: SQLiteDatabase,
+    private val db: SqlDb,
     private val sourceRepo: SourceRepo,
     private val runtime: LlmRuntime,
 ) {
@@ -68,7 +68,7 @@ class Retriever(
                    WHERE chunks_fts MATCH ? AND rowid IN
                      (SELECT id FROM chunks WHERE notebookId = ?)
                    ORDER BY 2 LIMIT ?""",
-                arrayOf("\"$sanitized\"", notebookId.toString(), limit.toString()),
+                arrayOf<Any?>("\"$sanitized\"", notebookId, limit),
             ).use { c ->
                 val out = ArrayList<Pair<Long, Double>>()
                 while (c.moveToNext()) out += c.getLong(0) to -c.getDouble(1)

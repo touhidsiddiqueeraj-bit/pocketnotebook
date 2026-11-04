@@ -1,9 +1,8 @@
 package com.pocketnotebook.app.core.db
 
 import android.content.ContentValues
-import android.database.sqlite.SQLiteDatabase
 
-class NoteRepo(private val db: SQLiteDatabase) {
+class NoteRepo(private val db: SqlDb) {
 
     fun add(notebookId: Long, text: String, pinned: Boolean = false): Long =
         db.insert("notes", null, ContentValues().apply {

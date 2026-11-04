@@ -1,9 +1,8 @@
 package com.pocketnotebook.app.core.db
 
 import android.content.ContentValues
-import android.database.sqlite.SQLiteDatabase
 
-class ModelRepo(private val db: SQLiteDatabase) {
+class ModelRepo(private val db: SqlDb) {
 
     fun upsert(slot: String, repoId: String, fileName: String, filePath: String,
                sizeBytes: Long, sha256: String?, verified: Boolean): Long {
@@ -45,7 +44,7 @@ class ModelRepo(private val db: SQLiteDatabase) {
         db.execSQL("DELETE FROM models WHERE id = ?", arrayOf(id))
     }
 
-    private fun rowToModel(c: android.database.Cursor) = ModelRecord(
+    private fun rowToModel(c: StmtCursor) = ModelRecord(
         id = c.getLong(0), slot = c.getString(1), repoId = c.getString(2),
         fileName = c.getString(3), filePath = c.getString(4), sizeBytes = c.getLong(5),
         sha256 = if (c.isNull(6)) null else c.getString(6), verified = c.getInt(7) == 1,

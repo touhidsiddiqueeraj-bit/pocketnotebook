@@ -1,9 +1,8 @@
 package com.pocketnotebook.app.core.db
 
 import android.content.ContentValues
-import android.database.sqlite.SQLiteDatabase
 
-class NotebookRepo(private val db: SQLiteDatabase) {
+class NotebookRepo(private val db: SqlDb) {
 
     fun create(title: String): Long {
         val now = System.currentTimeMillis()
@@ -62,7 +61,7 @@ class NotebookRepo(private val db: SQLiteDatabase) {
             c.moveToFirst(); c.getInt(0)
         }
 
-    private fun rowToNotebook(c: android.database.Cursor) = Notebook(
+    private fun rowToNotebook(c: StmtCursor) = Notebook(
         id = c.getLong(0), title = c.getString(1), createdAt = c.getLong(2), updatedAt = c.getLong(3),
     )
 }

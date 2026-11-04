@@ -15,6 +15,8 @@ serializationJson = "1.7.3"
 coroutines = "1.9.0"
 documentfile = "1.0.1"
 splashscreen = "1.0.1"
+androidxSqlite = "2.7.1"
+xerialSqlite = "3.54.1.0"
 junit = "4.13.2"
 
 [libraries]
@@ -34,6 +36,9 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
+androidx-sqlite = { group = "androidx.sqlite", name = "sqlite", version.ref = "androidxSqlite" }
+androidx-sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "androidxSqlite" }
+xerial-sqlite-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version.ref = "xerialSqlite" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }

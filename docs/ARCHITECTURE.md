@@ -67,6 +67,13 @@ flowchart LR
 
 ## Data model (SQLite v1 — FTS5 needs a hand-rolled schema; Room only wraps FTS4)
 
+> **Bundled engine**: since v0.1.0-alpha.3 the app ships its own SQLite
+> (`androidx.sqlite:sqlite-bundled`, SQLite 3.50.1, FTS5 compiled in, 16 KB-page
+> aligned). Android's system SQLite omits the FTS5 module on every vendor —
+> including Android 15/16 — which made v0.1.0-alpha.2 fail at first launch with
+> `no such module: fts5`. One FULLMUTEX connection shared app-wide; a JVM unit
+> test (`DbSchemaFts5Test`) replays the real DDL against an FTS5 engine in CI.
+
 ```
 Notebook(id, title, createdAt)
 Source(id, notebookId, type[pdf|text|md|html|epub|audio|url|pasted|ocr],
