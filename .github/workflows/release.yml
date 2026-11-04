@@ -152,8 +152,22 @@ jobs:
       - name: Rename CPU APK
         run: mv app/build/outputs/apk/release/app-release.apk "PocketNotebook-${{ github.ref_name }}-arm64.apk"
 
+      - name: Stage the CPU engine for the -gpu APK
+        # The -gpu APK must NEVER ship the OpenCL lib alone: ROMs that do not
+        # expose libOpenCL.so to apps (not in /vendor/etc/public.libraries.txt)
+        # reject that lib at dlopen and — in alpha.9 — left the app engineless
+        # ("Kit build" on a release APK). Package the CPU engine from the
+        # standard APK next to it; PocketLlm.kt tries pocketllm_ocl first and
+        # falls back to pocketllm, so the same -gpu APK works everywhere and
+        # uses the GPU wherever the ROM allows.
+        run: |
+          mkdir -p extra-jni/lib/arm64-v8a
+          unzip -o -j "PocketNotebook-${{ github.ref_name }}-arm64.apk" \
+            "lib/arm64-v8a/libpocketllm.so" -d extra-jni/lib/arm64-v8a
+          ls -la extra-jni/lib/arm64-v8a
+
       - name: Assemble release APK (OpenCL GPU engine — experimental)
-        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PgpuOpencl=true --stacktrace
+        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PgpuOpencl=true -PextraJniLibs=${{ github.workspace }}/extra-jni/lib --stacktrace
 
       - name: Verify 16 KB compliance (GPU APK)
         run: python3 scripts/check_16k_alignment.py app/build/outputs/apk/release/app-release.apk
@@ -176,9 +190,9 @@ jobs:
           body: |
             **PocketNotebook ${{ github.ref_name }}** — offline NotebookLM clone for Android.
 
-            **Pick ONE APK:**
+            **Pick ONE APK** (same signature — installs right over each other):
             * `PocketNotebook-…-arm64.apk` — **standard: CPU engine**, loads on every device. When in doubt, this one.
-            * `PocketNotebook-…-arm64-gpu.apk` — **experimental: OpenCL/Adreno GPU engine**. Model layers offload to the GPU on ROMs that expose `libOpenCL.so` to apps; if onboarding shows an engine error, your ROM does not — install the standard APK instead (same signature, installs right over).
+            * `PocketNotebook-…-arm64-gpu.apk` — **OpenCL/Adreno GPU engine + automatic CPU fallback in the same APK**. On Snapdragon devices whose ROM exposes `libOpenCL.so` to apps, all model layers offload to the GPU; otherwise the app silently runs the CPU engine. Check Settings → Diagnostics → "GPU:" to see which one is active.
 
             * Install: sideload the APK (allow "install unknown apps"). arm64-v8a, Android 8.0+.
             * Models download on first run (LFM3-1.7B ~1 GB + bge-small embeddings 35 MB) — the APK stays ~80 MB.

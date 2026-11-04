@@ -6,7 +6,7 @@ Two build flavors, one codebase:
 |---|---|---|---|
 | **Kit** | `./gradlew assembleDebug -PskipNative=true` | Stub `libpocketllm.so` (native calls degrade) | Fast CI checks, UI work |
 | **Full (CPU)** | `./gradlew assembleRelease` (requires llama.cpp checkout) | Real llama.cpp CPU engine (`libpocketllm.so`), statically linked — loads on every device | Sideload / standard release APK |
-| **Full (GPU)** | `./gradlew assembleRelease -PgpuOpencl=true` | OpenCL/Adreno engine (`libpocketllm_ocl.so`) | Experimental `-gpu` release APK |
+| **Full (GPU)** | `./gradlew assembleRelease -PgpuOpencl=true -PextraJniLibs=<cpu-lib-dir>` | OpenCL/Adreno engine (`libpocketllm_ocl.so`) **+ the CPU engine** | `-gpu` release APK |
 
 ## Requirements
 
@@ -43,28 +43,48 @@ automatically. The commit currently shipped:
 - `app/src/main/cpp/pocket_jni.cpp` — the only C++ we own: model load/unload,
   chat-template application, streaming completion (token callback bridge),
   embeddings, abort. One engine lib per build (`libpocketllm.so` /
-  `libpocketllm_ocl.so`).
+  `libpocketllm_ocl.so`); the -gpu APK packages both (see above).
 - `CMakeLists.txt` builds llama.cpp with `BUILD_SHARED_LIBS=OFF` and links it
   **statically** — no `.so` dependency ordering issues on any Android version.
 - Update the pin → bump `LLAMA_REF` in `.github/workflows/native.yml` and
   `release.yml` and the engine line in Settings.
 
+### Studio generation budgets (why Deep Dive / Flashcards failed in alpha.9)
+
+Grammar-constrained JSON artifacts fail when the model's output is truncated
+at the token/context cap: the half-written JSON is unparseable and the card
+shows "Failed · tap to retry". Three layers keep that from failing:
+
+1. **Right-sized demands** (`Prompts.kt` + token budgets in `StudioService.kt`):
+   the asked-for card/segment counts and sentence lengths fit the
+   `maxTokens` budget of the call (flashcards 1400, deep dive 2200).
+2. **Context-fit digest** (`LlmRuntime.promptTokenBudget` + `nativeCtx`): the
+   notebook digest is trimmed to the tokens left after reserving generation,
+   so prompt + output always fit `n_ctx` (4096 or 8192) — before alpha.10 a
+   12000-character digest could overflow a 4096-token context on its own.
+3. **Salvage** (`StudioJson.parseLenient`): if output still truncates, the
+   parser cuts back to the last complete element and closes the JSON — a
+   26-segment script cut short yields a 20-segment artifact, not a failure.
+
 ### GPU acceleration (OpenCL / Adreno) — experimental
 
 Since v0.1.0-alpha.10 there are **two engine libs** and two release APKs:
 
-| Variant | Build | Engine lib | Ships in |
+| Variant | Build | Engine libs | Ships in |
 |---|---|---|---|
 | CPU (default) | `./gradlew assembleRelease` | `libpocketllm.so` | standard APK |
-| OpenCL/Adreno | `./gradlew assembleRelease -PgpuOpencl=true` | `libpocketllm_ocl.so` | experimental `-gpu` APK |
+| OpenCL/Adreno | `./gradlew assembleRelease -PgpuOpencl=true` | `libpocketllm_ocl.so` **+ `libpocketllm.so`** | `-gpu` APK |
 
-`PocketLlm.kt` tries `pocketllm_ocl` first and falls back to `pocketllm`, so a
-GPU lib can never leave the app engineless. That fallback is the fix for the
-alpha.9 regression: the OpenCL engine was the ONLY lib and it hard-links
-`libOpenCL.so`, so ROMs that do not expose that vendor lib to apps (it must be
-listed in `/vendor/etc/public.libraries.txt`) rejected the whole engine at
-dlopen time — and the app showed "Kit build" on a perfectly good release APK
-(load failures were mislabeled as kit builds).
+`PocketLlm.kt` tries `pocketllm_ocl` first and falls back to `pocketllm`. Since
+alpha.10 the **-gpu APK ships BOTH engines** (CI stages the CPU engine from the
+standard APK via `-PextraJniLibs`, see `release.yml`), so a GPU lib can never
+leave the app engineless: on ROMs that expose `libOpenCL.so` to apps the model
+offloads to the Adreno GPU, on every other ROM the CPU engine runs instead.
+That fallback is the fix for the alpha.9 regression: the OpenCL engine was the
+ONLY lib and it hard-links `libOpenCL.so`, so ROMs that do not expose that
+vendor lib to apps (it must be listed in `/vendor/etc/public.libraries.txt`)
+rejected the whole engine at dlopen time — and the app showed "Kit build" on
+a perfectly good release APK (load failures were mislabeled as kit builds).
 
 The OpenCL engine offloads all model layers to the Adreno GPU automatically
 (`n_gpu_layers` defaults to "all"; kernels are embedded into the .so, no `.cl`
@@ -83,8 +103,8 @@ Build requirements for the -gpu variant (CI does this for you — see the
 
 At runtime the `libOpenCL.so` dependency resolves to the **device's own vendor
 OpenCL**. No vendor lib, or not exposed to apps? The GPU engine refuses to
-load and the app falls back (standard APK) or tells you to install the
-standard APK (-gpu APK).
+load and the app falls back to the CPU engine that ships in the same APK
+(since alpha.10) — the standard APK stays the zero-GPU-risk choice.
 
 ### 16 KB page-size compliance (read this before touching the NDK)
 

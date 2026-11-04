@@ -78,9 +78,10 @@ $digest"""
     fun flashcards(digest: String, sourceCount: Int) = """Create study flashcards from the notebook digest below as compact JSON.
 
 Rules for the JSON:
-- 8 to 14 cards. Each has "front" (a question or prompt) and "back" (the answer, 1-3 sentences).
+- 8 to 10 cards. Each has "front" (a short question or prompt) and "back" (the answer, 1-2 sentences).
 - Fronts must be self-contained questions; backs grounded in the digest — do not invent.
 - Single line strings only — no line breaks inside text.
+- Be brief: 2 of your cards must come from the tail of the digest so it is fully covered.
 - Output ONLY the JSON object, nothing else.
 
 Notebook digest ($sourceCount sources):
@@ -109,7 +110,7 @@ $digest"""
 Rules for the JSON:
 - Object with "title" (catchy, under 10 words) and "segments": an array of {\"speaker\":\"A\" or \"B\",\"text\":\"...\"}.
 $hostSetup
-- ${if (style == "brief") "5 to 8 segments" else "16 to 26 segments"}; each segment is 1-3 spoken sentences, single line, no special characters or emojis, no stage directions.
+- ${if (style == "brief") "5 to 8 segments" else "10 to 16 segments"}; each segment is 1-2 spoken sentences, single line, no special characters or emojis, no stage directions.
 - Open with a hook, cover the key ideas and numbers from the digest, close with a takeaway. Do not invent facts.
 - Keep language spoken-style and simple. Output ONLY the JSON object, nothing else.
 

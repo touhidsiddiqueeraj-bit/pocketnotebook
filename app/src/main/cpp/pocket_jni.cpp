@@ -69,6 +69,19 @@ std::string g_last_error;
 
 void set_last_error(const std::string & msg) {
     std::lock_guard<std::mutex> lk(g_err_mutex);
+    // Skip an exact repeat of the last line: llama.cpp fires per-call warnings
+    // (e.g. the embeddings output-override line, once per embed) and without
+    // this the captured "engine error" grew into a wall of identical pink
+    // lines on the Diagnostics screen.
+    if (!msg.empty()) {
+        const std::string last_nl = msg + "\n";
+        if (g_last_error == msg ||
+            (g_last_error.size() >= last_nl.size() &&
+             g_last_error.compare(g_last_error.size() - last_nl.size(),
+                                  last_nl.size(), last_nl) == 0)) {
+            return;
+        }
+    }
     if (g_last_error.size() > 2048) g_last_error.clear(); // keep the tail fresh
     g_last_error += msg;
     if (!g_last_error.empty() && g_last_error.back() != '\n') g_last_error += '\n';
@@ -113,6 +126,14 @@ void pocket_log_callback(ggml_log_level level, const char * text, void *) {
     if (level >= GGML_LOG_LEVEL_WARN) {
         __android_log_print(level >= GGML_LOG_LEVEL_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN,
                             TAG, "%s", line.c_str());
+        // Benign llama-batch warning: a logits==NULL batch with embeddings gets
+        // its outputs overridden (which IS the intended behavior here) — not
+        // a failure, so never surface it as an "engine error".
+        // (nativeEmbed now marks outputs explicitly; this is belt & braces.)
+        if (line.find("embeddings required but some input tokens were not "
+                      "marked as outputs") != std::string::npos) {
+            return;
+        }
         set_last_error(line);
     } else {
         __android_log_print(ANDROID_LOG_INFO, TAG, "%s", line.c_str());
@@ -671,6 +692,14 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeComplete(JNIEnv * env, j
     }
 
     llama_sampler_free(chain);
+    // Name the silent stop: when the context filled before the token budget,
+    // the caller sees a short answer with no error — recording the reason
+    // makes such truncations diagnosable in Diagnostics instead of a mystery.
+    if (visible < max_tokens && used + 4 >= n_ctx && !out.empty()) {
+        set_last_error("context limit: prompt+output filled n_ctx=" +
+                       std::to_string(n_ctx) + " after " +
+                       std::to_string(visible) + " output tokens (output truncated)");
+    }
     if (callback_id != 0 && g_bridge_class != nullptr) {
         env->CallStaticVoidMethod(g_bridge_class, g_bridge_done, (jlong) callback_id);
         if (env->ExceptionCheck()) env->ExceptionClear();
@@ -720,6 +749,22 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeAbort(JNIEnv *, jobject,
 #endif
 }
 
+// Context size of a loaded model handle, in tokens — the Kotlin layer uses
+// it to size the Studio digest so prompt + generation fit the context
+// (alpha.9 could fail the whole prefill when the digest alone overflowed
+// a 4096-token context).
+JNIEXPORT jint JNICALL
+Java_com_pocketnotebook_app_core_native_PocketLlm_nativeCtx(JNIEnv *, jobject, jlong id) {
+#if POCKET_WITH_LLAMA
+    Handle * h = find_handle((int64_t) id);
+    if (!h || !h->ctx) return 0;
+    return (jint) llama_n_ctx(h->ctx);
+#else
+    (void) id;
+    return 0;
+#endif
+}
+
 JNIEXPORT jfloatArray JNICALL
 Java_com_pocketnotebook_app_core_native_PocketLlm_nativeEmbed(JNIEnv * env, jobject,
         jlong id, jstring jtext) {
@@ -761,7 +806,16 @@ Java_com_pocketnotebook_app_core_native_PocketLlm_nativeEmbed(JNIEnv * env, jobj
     if (tokens.empty() || (int32_t) tokens.size() > n_batch_limit(h))
         return env->NewFloatArray(0);
 
+    // Mark EVERY token as an output explicitly. llama_batch_get_one leaves
+    // batch.logits == NULL; with embeddings enabled llama-batch.cpp then warns
+    // "... some input tokens were not marked as outputs -> overriding" on
+    // EVERY embed call — once per chunk during ingestion, a pink wall of
+    // fake "engine errors" in Diagnostics. Marking all tokens is exactly
+    // what the override does (mean pooling over the whole sequence), minus
+    // the warning. The vector must outlive llama_decode below.
+    std::vector<int8_t> outputs(tokens.size(), 1);
     llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
+    batch.logits = outputs.data();
     if (llama_decode(h->ctx, batch) != 0) {
         LOGE("embed decode failed");
         set_last_error("embed decode failed");

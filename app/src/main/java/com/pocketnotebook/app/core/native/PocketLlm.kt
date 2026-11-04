@@ -130,6 +130,7 @@ object PocketLlm {
     external fun nativeUnload(id: Long)
     external fun nativeMeta(id: Long): String
     external fun nativeTokenCount(id: Long, text: String): Int
+    external fun nativeCtx(id: Long): Int
     external fun nativeApplyTemplate(
         id: Long, roles: Array<String>, contents: Array<String>, addAssist: Boolean,
     ): String

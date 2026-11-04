@@ -107,6 +107,18 @@ android {
     buildFeatures {
         compose = true
     }
+    // Extra native libs to package alongside the CMake-built engine. The CI
+    // release pipeline stages the CPU engine (libpocketllm.so from the
+    // standard build) into the -gpu APK this way, so the OpenCL build is never
+    // the ONLY engine on board — on ROMs that hide libOpenCL.so from apps,
+    // PocketLlm.kt falls back to the CPU lib instead of dying (alpha.9's
+    // "engineless -gpu APK" regression).
+    providers.gradleProperty("extraJniLibs").orNull?.let { dir ->
+        if (File(dir).exists()) {
+            sourceSets.getByName("main") { jniLibs.srcDir(file(dir)) }
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

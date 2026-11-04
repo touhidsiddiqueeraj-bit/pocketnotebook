@@ -12,6 +12,11 @@ import kotlin.math.roundToInt
 /**
  * Studio generators — every structured artifact is GBNF-constrained.
  * Shared skeleton: map-reduce digest → prompt → (grammar) → parse → persist.
+ *
+ * Parsing goes through [StudioJson.parseLenient]: a truncation at the token/
+ * context cap yields a smaller artifact instead of a failed one (alpha.9
+ * failed Deep Dive and Flashcards this way — their demanded output exceeded
+ * the generation budget and the half-written JSON was unparseable).
  */
 class StudioService(
     private val sourceRepo: SourceRepo,
@@ -28,20 +33,6 @@ class StudioService(
         "You are a precise offline research assistant for study materials. " +
             "Follow the user's formatting instructions exactly. Ground every claim " +
             "in the provided material and never invent facts."
-
-    /**
-     * Extract the outermost JSON object from raw model output. Grammar-guided
-     * generation should return pure JSON, but with the chat template applied
-     * the model sometimes pads a word or a stray character — alpha.7 marked
-     * every artifact failed on that.
-     */
-    internal fun extractJson(raw: String): String {
-        val text = Thinking.strip(raw)
-        val first = text.indexOf('{')
-        val last = text.lastIndexOf('}')
-        if (first < 0 || last <= first) throw IllegalStateException("no JSON object in model output")
-        return text.substring(first, last + 1)
-    }
 
     // ------------------------------------------------------------- payloads
 
@@ -91,9 +82,14 @@ class StudioService(
 
     /**
      * Map-reduce notebook digest: per-source summaries (cached on the source
-     * row) joined into one context block, capped in characters.
+     * row) joined into one context block, then trimmed to the token budget
+     * that is left after reserving [maxTokens] of generation inside the
+     * loaded model's context. The old 12000-CHARACTER cap could exceed the
+     * whole context on a 4096-token device and fail the prefill outright.
      */
-    suspend fun digest(notebookId: Long): Pair<String, Int> {
+    suspend fun digest(notebookId: Long, maxTokens: Int): Pair<String, Int> {
+        // Cheap no-op when already loaded; makes token counting exact below.
+        runtime.ensureChatLoaded()
         val sources = sourceRepo.listForNotebook(notebookId).filter { it.status == ArtifactStatus.READY }
         if (sources.isEmpty()) return "" to 0
         val parts = ArrayList<String>(sources.size)
@@ -119,7 +115,9 @@ class StudioService(
             parts += "=== ${s.title} ===\n$summary"
         }
         val joined = parts.joinToString("\n\n")
-        return joined.take(12000) to sources.size
+        val budget = runtime.promptTokenBudget(maxTokens)
+        val fitted = StudioJson.fitToTokens(joined, budget) { runtime.tokenCount(it) }
+        return fitted to sources.size
     }
 
     // -------------------------------------------------------------- reports
@@ -128,7 +126,7 @@ class StudioService(
         val artifactId = artifactRepo.create(notebookId, kind, titleFor(kind))
         artifactRepo.update(artifactId, status = ArtifactStatus.RUNNING)
         try {
-            val (digestText, count) = digest(notebookId)
+            val (digestText, count) = digest(notebookId, REPORT_TOKENS)
             if (count == 0) {
                 artifactRepo.update(
                     artifactId, status = ArtifactStatus.FAILED,
@@ -141,7 +139,7 @@ class StudioService(
                     system = system,
                     user = Prompts.report(kind, digestText, count),
                     temperature = 0.35f,
-                    maxTokens = 1100,
+                    maxTokens = REPORT_TOKENS,
                 ),
             )
             if (md.isBlank()) throw IllegalStateException("model produced no output")
@@ -162,7 +160,7 @@ class StudioService(
         val artifactId = artifactRepo.create(notebookId, ArtifactKind.MINDMAP, "Mind map")
         artifactRepo.update(artifactId, status = ArtifactStatus.RUNNING)
         try {
-            val (digestText, count) = digest(notebookId)
+            val (digestText, count) = digest(notebookId, MINDMAP_TOKENS)
             if (count == 0) {
                 artifactRepo.update(
                     artifactId, status = ArtifactStatus.FAILED,
@@ -174,11 +172,11 @@ class StudioService(
                 system = system,
                 user = Prompts.mindMap(digestText, count),
                 temperature = 0.4f,
-                maxTokens = 800,
+                maxTokens = MINDMAP_TOKENS,
                 grammar = Grammars.mindMap,
                 grammarRoot = "root",
             )
-            val tree = parseMindMap(extractJson(raw))
+            val tree = parseMindMap(raw)
             artifactRepo.update(
                 artifactId, status = ArtifactStatus.READY,
                 payload = json.encodeToString(MindMapNode.serializer(), tree),
@@ -190,7 +188,16 @@ class StudioService(
     }
 
     internal fun parseMindMap(raw: String): MindMapNode =
-        json.decodeFromString(MindMapNode.serializer(), extractJson(raw))
+        StudioJson.parseLenient(raw) { json.decodeFromString(MindMapNode.serializer(), it) }
+
+    internal fun parseFlashcards(raw: String): FlashcardSet =
+        StudioJson.parseLenient(raw) { json.decodeFromString(FlashcardSet.serializer(), it) }
+
+    internal fun parseQuiz(raw: String): QuizSet =
+        StudioJson.parseLenient(raw) { json.decodeFromString(QuizSet.serializer(), it) }
+
+    internal fun parseOverview(raw: String): OverviewScript =
+        StudioJson.parseLenient(raw) { json.decodeFromString(OverviewScript.serializer(), it) }
 
     // ------------------------------------------------------------- flashcards
 
@@ -198,7 +205,7 @@ class StudioService(
         val artifactId = artifactRepo.create(notebookId, ArtifactKind.FLASHCARDS, "Flashcards")
         artifactRepo.update(artifactId, status = ArtifactStatus.RUNNING)
         try {
-            val (digestText, count) = digest(notebookId)
+            val (digestText, count) = digest(notebookId, FLASHCARD_TOKENS)
             if (count == 0) {
                 artifactRepo.update(
                     artifactId, status = ArtifactStatus.FAILED,
@@ -210,11 +217,11 @@ class StudioService(
                 system = system,
                 user = Prompts.flashcards(digestText, count),
                 temperature = 0.4f,
-                maxTokens = 1100,
+                maxTokens = FLASHCARD_TOKENS,
                 grammar = Grammars.flashcards,
                 grammarRoot = "root",
             )
-            val parsed = json.decodeFromString(FlashcardSet.serializer(), extractJson(raw))
+            val parsed = parseFlashcards(raw)
             if (parsed.cards.isEmpty()) throw IllegalStateException("no cards generated")
             val now = System.currentTimeMillis()
             parsed.cards.forEach { it.dueAt = now }
@@ -234,7 +241,7 @@ class StudioService(
         val artifactId = artifactRepo.create(notebookId, ArtifactKind.QUIZ, "Quiz")
         artifactRepo.update(artifactId, status = ArtifactStatus.RUNNING)
         try {
-            val (digestText, count) = digest(notebookId)
+            val (digestText, count) = digest(notebookId, QUIZ_TOKENS)
             if (count == 0) {
                 artifactRepo.update(
                     artifactId, status = ArtifactStatus.FAILED,
@@ -246,11 +253,11 @@ class StudioService(
                 system = system,
                 user = Prompts.quiz(digestText, count),
                 temperature = 0.4f,
-                maxTokens = 1100,
+                maxTokens = QUIZ_TOKENS,
                 grammar = Grammars.quiz,
                 grammarRoot = "root",
             )
-            val parsed = json.decodeFromString(QuizSet.serializer(), extractJson(raw))
+            val parsed = sanitizeQuiz(parseQuiz(raw))
             if (parsed.questions.isEmpty()) throw IllegalStateException("no questions generated")
             artifactRepo.update(
                 artifactId, status = ArtifactStatus.READY,
@@ -271,7 +278,7 @@ class StudioService(
         )
         artifactRepo.update(artifactId, status = ArtifactStatus.RUNNING)
         try {
-            val (digestText, count) = digest(notebookId)
+            val (digestText, count) = digest(notebookId, OVERVIEW_TOKENS)
             if (count == 0) {
                 artifactRepo.update(
                     artifactId, status = ArtifactStatus.FAILED,
@@ -283,11 +290,11 @@ class StudioService(
                 system = system,
                 user = Prompts.overviewScript(digestText, count, style),
                 temperature = 0.6f,
-                maxTokens = 1600,
+                maxTokens = OVERVIEW_TOKENS,
                 grammar = Grammars.overviewScript,
                 grammarRoot = "root",
             )
-            val script = json.decodeFromString(OverviewScript.serializer(), extractJson(raw))
+            val script = parseOverview(raw)
             if (script.segments.isEmpty()) throw IllegalStateException("empty script")
             script.style = style
             artifactRepo.update(
@@ -327,5 +334,22 @@ class StudioService(
     companion object {
         fun estimateDurationSeconds(segments: Int, words: Int): Int =
             (words / 2.6f + segments * 0.35f).roundToInt().coerceAtLeast(15)
+
+        // Generation budgets (tokens). Set so the DEMANDED output fits the
+        // budget: alpha.9 asked for up to 14 padded cards / 26 long segments
+        // with a 1100/1600 token cap — the two cards that always failed.
+        private const val REPORT_TOKENS = 1100
+        private const val MINDMAP_TOKENS = 900
+        private const val FLASHCARD_TOKENS = 1400
+        private const val QUIZ_TOKENS = 1100
+        private const val OVERVIEW_TOKENS = 2200
+
+        /** Drop questions a truncation salvage may have left malformed. */
+        internal fun sanitizeQuiz(set: QuizSet): QuizSet {
+            set.questions.removeAll {
+                it.options.size != 4 || it.answer !in 0..3 || it.question.isBlank()
+            }
+            return set
+        }
     }
 }

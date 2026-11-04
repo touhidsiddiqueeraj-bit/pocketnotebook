@@ -196,6 +196,30 @@ class LlmRuntime(
     }
 
     /**
+     * Context size (tokens) of the loaded chat model — loads the model if
+     * needed so the answer is exact; falls back to the configured default
+     * when the model cannot load (budgeting still needs SOME number).
+     */
+    suspend fun chatContextTokens(): Int {
+        if (!ensureChatLoaded() || chatHandle == 0L) return autoContext()
+        return try {
+            withContext(Dispatchers.IO) { PocketLlm.nativeCtx(chatHandle) }.coerceAtLeast(1024)
+        } catch (_: Throwable) {
+            autoContext()
+        }
+    }
+
+    /**
+     * How many PROMPT tokens a Studio caller may spend so that prompt +
+     * [maxTokens] of generation plus the fixed instruction overhead fit the
+     * model context. 640 = system prompt + chat-template wrapper + rule
+     * block (~384) and safety margin. Floor of 512 keeps a usable digest on
+     * small contexts instead of an empty prompt.
+     */
+    suspend fun promptTokenBudget(maxTokens: Int): Int =
+        (chatContextTokens() - maxTokens - 640).coerceAtLeast(512)
+
+    /**
      * One completion at a time per process (mobile RAM/KV-cache reality).
      * [onToken] runs on an IO thread — hop for UI updates.
      */

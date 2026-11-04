@@ -183,6 +183,19 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
                             color = glass.accent3,
                             modifier = Modifier.padding(top = 4.dp),
                         )
+                        // The actual reason (token truncation, ctx overflow,
+                        // parse error…) — without this the card fails opaquely
+                        // and even we could only guess from a screenshot.
+                        latest.error?.takeIf { it.isNotBlank() }?.let { err ->
+                            Text(
+                                err.take(120),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = glass.textMuted,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
                     }
                 }
             }
