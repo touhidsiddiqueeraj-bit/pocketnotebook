@@ -66,7 +66,6 @@ fun FlashcardsBody(artifactId: Long, payload: String) {
     }
     var position by remember { mutableIntStateOf(0) }
     var flipped by remember { mutableStateOf(false) }
-    var studied by remember { mutableIntStateOf(0) }
 
     fun grade(grade: Int) {
         val s = set
@@ -83,7 +82,6 @@ fun FlashcardsBody(artifactId: Long, payload: String) {
         )
         container.studioService.saveFlashcards(artifactId, s)
         set = s
-        studied++
         flipped = false
         position = (position + 1).coerceAtMost(queue.size - 1)
     }
@@ -106,7 +104,7 @@ fun FlashcardsBody(artifactId: Long, payload: String) {
         if (queue.isEmpty()) {
             GlassPanel(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "Nothing due — come back later, or study the full deck.",
+                    "Nothing due.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = glass.text,
                 )
@@ -156,21 +154,9 @@ fun FlashcardsBody(artifactId: Long, payload: String) {
                 color = glass.text,
                 modifier = Modifier.padding(top = 10.dp),
             )
-            Text(
-                "reps ${card.reps} · ease ${"%.1f".format(card.ease)} · interval ${card.intervalDays}d",
-                style = MaterialTheme.typography.labelSmall,
-                color = glass.textMuted.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 10.dp),
-            )
         }
 
         if (flipped) {
-            Text(
-                "How well did you know it?",
-                style = MaterialTheme.typography.labelMedium,
-                color = glass.textMuted,
-                modifier = Modifier.padding(start = 6.dp),
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GradeButton("Again", glass.accent3) { grade(0) }
                 GradeButton("Hard", glass.textMuted) { grade(1) }
@@ -178,12 +164,6 @@ fun FlashcardsBody(artifactId: Long, payload: String) {
                 GradeButton("Easy", glass.accent) { grade(3) }
             }
         }
-
-        Text(
-            "$studied studied this session",
-            style = MaterialTheme.typography.labelSmall,
-            color = glass.textMuted,
-        )
     }
 }
 
@@ -284,7 +264,7 @@ fun QuizBody(artifactId: Long, payload: String) {
         }
         if (answered) {
             Text(
-                if (selected == q.answer) "Correct." else "Not quite — the answer is: ${q.options[q.answer]}",
+                if (selected == q.answer) "Correct" else "Answer: ${q.options[q.answer]}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (selected == q.answer) glass.accent else glass.accent3,
                 modifier = Modifier.padding(start = 6.dp),

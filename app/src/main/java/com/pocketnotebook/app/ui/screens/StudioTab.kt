@@ -54,7 +54,6 @@ import kotlinx.coroutines.launch
 private data class StudioCard(
     val kind: String,
     val label: String,
-    val blurb: String,
     val icon: ImageVector,
 )
 
@@ -93,14 +92,14 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
     }
 
     val cards = listOf(
-        StudioCard(ArtifactKind.STUDY_GUIDE, "Study Guide", "Concepts, terms, review questions", Icons.Rounded.Assignment),
-        StudioCard(ArtifactKind.BRIEFING, "Briefing Doc", "Executive summary & takeaways", Icons.Rounded.Toc),
-        StudioCard(ArtifactKind.FAQ, "FAQ", "Likely questions answered", Icons.Rounded.Lightbulb),
-        StudioCard(ArtifactKind.TIMELINE, "Timeline", "Events in order", Icons.Rounded.Timeline),
-        StudioCard(ArtifactKind.MINDMAP, "Mind Map", "Topic tree, pan & zoom", Icons.Rounded.Psychology),
-        StudioCard(ArtifactKind.FLASHCARDS, "Flashcards", "Spaced repetition (SM-2)", Icons.Rounded.Style),
-        StudioCard(ArtifactKind.QUIZ, "Quiz", "Multiple choice + scoring", Icons.Rounded.Quiz),
-        StudioCard(ArtifactKind.OVERVIEW, "Deep Dive", "Two-host audio overview", Icons.Rounded.Headphones),
+        StudioCard(ArtifactKind.STUDY_GUIDE, "Study Guide", Icons.Rounded.Assignment),
+        StudioCard(ArtifactKind.BRIEFING, "Briefing", Icons.Rounded.Toc),
+        StudioCard(ArtifactKind.FAQ, "FAQ", Icons.Rounded.Lightbulb),
+        StudioCard(ArtifactKind.TIMELINE, "Timeline", Icons.Rounded.Timeline),
+        StudioCard(ArtifactKind.MINDMAP, "Mind Map", Icons.Rounded.Psychology),
+        StudioCard(ArtifactKind.FLASHCARDS, "Flashcards", Icons.Rounded.Style),
+        StudioCard(ArtifactKind.QUIZ, "Quiz", Icons.Rounded.Quiz),
+        StudioCard(ArtifactKind.OVERVIEW, "Deep Dive", Icons.Rounded.Headphones),
     )
 
     Column(Modifier.fillMaxWidth()) {
@@ -110,7 +109,7 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
                 .padding(horizontal = 18.dp, vertical = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Install a chat model to generate studio artifacts.",
+                        "No chat model.",
                         style = MaterialTheme.typography.bodySmall,
                         color = glass.textMuted,
                         modifier = Modifier.weight(1f),
@@ -148,23 +147,17 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
                         color = glass.text,
                         modifier = Modifier.padding(top = 8.dp),
                     )
-                    Text(
-                        card.blurb,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = glass.textMuted,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
                     if (running) {
                         GlassProgressBar(0.99f, Modifier.padding(top = 10.dp)) // pulsing near-full
                         Text(
-                            "Generating on-device…",
+                            "Generating…",
                             style = MaterialTheme.typography.labelSmall,
                             color = glass.accent,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     } else if (latest?.status == "failed") {
                         Text(
-                            "Failed — tap to retry",
+                            "Failed · tap to retry",
                             style = MaterialTheme.typography.labelSmall,
                             color = glass.accent3,
                             modifier = Modifier.padding(top = 4.dp),
@@ -204,11 +197,5 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
                 }
             }
         }
-        Text(
-            "Tap a card to open its latest artifact, or generate a new one. Long-press to regenerate.",
-            style = MaterialTheme.typography.labelSmall,
-            color = glass.textMuted.copy(alpha = 0.7f),
-            modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
-        )
     }
 }

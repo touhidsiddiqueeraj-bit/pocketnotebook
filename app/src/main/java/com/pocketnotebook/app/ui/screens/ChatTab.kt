@@ -132,15 +132,15 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
         // ---------------- model availability banners ----------------
         val chatReady = runtimeState.chatPath != null
         if (!container.runtime.nativeReady) {
-            Banner("This is a kit build — no AI engine compiled in. Install a release APK from GitHub Releases.") {
+            Banner("Kit build — no AI engine. Install a release APK.") {
                 GlassButton("Models", onClick = { nav.navigate(Routes.MODELS) })
             }
         } else if (!chatReady && !runtimeState.chatLoading) {
-            Banner("No chat model installed yet. Download the brain (~1 GB) to start asking questions.") {
+            Banner("No chat model yet.") {
                 GlassButton("Get model", primary = true, onClick = { nav.navigate(Routes.MODELS) })
             }
         } else if (runtimeState.chatLoading) {
-            Banner("Loading model into memory… (a few seconds)")
+            Banner("Loading model…")
         }
 
         // ---------------- conversation ----------------
@@ -198,7 +198,7 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
                 GlassTextField(
                     value = input,
                     onValueChange = { input = it },
-                    placeholder = if (chatReady) "Ask about your sources…" else "Install a model first…",
+                    placeholder = if (chatReady) "Ask…" else "No model",
                     enabled = chatReady && !runtimeState.generating,
                 )
             }

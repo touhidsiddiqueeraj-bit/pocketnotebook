@@ -52,9 +52,9 @@ fun SourceViewerScreen(sourceId: Long, highlightChunkId: Long, nav: NavHostContr
             source?.let {
                 when (it.status) {
                     SourceStatus.FAILED -> "Failed: ${it.error}"
-                    SourceStatus.PENDING -> "Queued for processing…"
-                    SourceStatus.PROCESSING -> "Processing on-device…"
-                    else -> "${it.wordCount} words · ${it.chunkCount} passages · ${it.type}"
+                    SourceStatus.PENDING -> "Queued…"
+                    SourceStatus.PROCESSING -> "Processing…"
+                    else -> "${it.wordCount} words"
                 }
             } ?: "",
             style = MaterialTheme.typography.labelSmall,

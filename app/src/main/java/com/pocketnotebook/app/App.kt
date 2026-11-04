@@ -42,6 +42,10 @@ class App : Application() {
         try {
             Channels.ensure(this)
             container = AppContainer(this)
+            // Self-heal: register model files that landed on disk but never
+            // made it into the DB (alpha.3 downloads whose post-download
+            // write crashed) so they are detected without a re-download.
+            runCatching { core.hf.ModelScanner.scanAndRegister(container) }
         } catch (t: Throwable) {
             bootError = t.message ?: t.toString()
             CrashGuard.recordBootFailure(this, t)

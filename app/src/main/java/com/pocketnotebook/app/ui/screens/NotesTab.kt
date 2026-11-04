@@ -62,7 +62,7 @@ fun NotesTab(notebookId: Long) {
             com.pocketnotebook.app.ui.EmptyState(
                 icon = Icons.Rounded.PushPin,
                 title = "No notes",
-                body = "The noteboard keeps your own thoughts about this material. Add a note, or save any chat answer here.",
+                body = "Save thoughts and chat answers here.",
             )
         } else {
             LazyColumn(
@@ -107,12 +107,6 @@ fun NotesTab(notebookId: Long) {
                 }
             }
         }
-        Text(
-            "Long-press to pin. Tap to edit or delete.",
-            style = MaterialTheme.typography.labelSmall,
-            color = glass.textMuted.copy(alpha = 0.7f),
-            modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp),
-        )
     }
 
     if (showAdd) {

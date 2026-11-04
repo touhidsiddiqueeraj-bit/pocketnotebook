@@ -109,15 +109,9 @@ fun ArtifactScreen(artifactId: Long, nav: NavHostController) {
                     .fillMaxWidth()
                     .padding(22.dp)) {
                     Text(
-                        "Generating on-device…",
+                        "Generating…",
                         style = MaterialTheme.typography.titleMedium,
                         color = glass.text,
-                    )
-                    Text(
-                        "Small model, big patience — this usually takes 30–120 seconds. Keep the app open.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = glass.textMuted,
-                        modifier = Modifier.padding(top = 6.dp),
                     )
                     GlassProgressBar(0.99f, Modifier.padding(top = 12.dp))
                 }
@@ -259,22 +253,16 @@ private fun OverviewBody(artifactId: Long, payload: String) {
                 if (baking) {
                     GlassProgressBar(0.99f, Modifier.padding(top = 12.dp))
                     Text(
-                        "Baking audio on-device (TTS per segment)…",
+                        "Baking…",
                         style = MaterialTheme.typography.labelMedium,
                         color = glass.accent,
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 } else {
-                    Text(
-                        "Narration uses your device's TTS for now — LFM3-Audio native voices land after Phase 0.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = glass.textMuted,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                    )
-                    GlassButton("Bake audio", primary = true, onClick = {
+                    GlassButton("Bake audio", primary = true, modifier = Modifier.padding(top = 8.dp)) {
                         baking = true
                         WorkScheduler.enqueueBake(context, artifactId)
-                    })
+                    }
                 }
             }
         }

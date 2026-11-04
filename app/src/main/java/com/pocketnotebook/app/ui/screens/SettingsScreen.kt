@@ -1,7 +1,5 @@
 package com.pocketnotebook.app.ui.screens
 
-import android.app.ActivityManager
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
@@ -51,7 +48,6 @@ fun SettingsScreen(nav: NavHostController) {
     var storage by remember { mutableStateOf(dirSize(container.runtime.modelsDir())) }
     val runtimeState by container.runtime.state.collectAsState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val context = LocalContext.current
 
     GlassScaffold(
         top = {
@@ -119,11 +115,6 @@ fun SettingsScreen(nav: NavHostController) {
                         inactiveTrackColor = glass.fillBottom,
                     ),
                 )
-                Text(
-                    "Bigger context = better grounding on long chats, more RAM. 8k is the mid-tier default.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = glass.textMuted,
-                )
             }
 
             // ---------------- engine ----------------
@@ -133,16 +124,6 @@ fun SettingsScreen(nav: NavHostController) {
                     if (runtimeState.chatPath != null) "Chat model: ${runtimeState.chatMeta?.desc ?: "loaded"}"
                     else "Chat model: not loaded",
                     style = MaterialTheme.typography.bodyMedium, color = glass.text,
-                )
-                Text(
-                    "llama.cpp pin: 6cb3e67 (mainline, Oct 2026) · arm64-v8a",
-                    style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                Text(
-                    "Device RAM class: ${am?.memoryClass ?: "?"} MB · threads: ${Runtime.getRuntime().availableProcessors()}",
-                    style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
                 )
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     GlassButton("Diagnostics", onClick = {
@@ -173,12 +154,11 @@ fun SettingsScreen(nav: NavHostController) {
             SectionLabel("About")
             GlassPanel(corner = 20.dp, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "PocketNotebook v0.1.0-alpha.2 — an offline clone of NotebookLM.",
+                    "PocketNotebook — an offline NotebookLM clone.",
                     style = MaterialTheme.typography.bodyMedium, color = glass.text,
                 )
                 Text(
-                    "Inference: llama.cpp (MIT). Models: LFM3 (LFM Open License v1.0), bge-small (MIT) — download-on-demand, never bundled.\n" +
-                        "This build: voice typing & audio-overview narration use the device speech services (see PRIVACY note); LFM3-Audio-2B native voice lands after the Phase 0 spike (#1).",
+                    "llama.cpp (MIT) · LFM3 (LFM Open License) · bge-small (MIT)",
                     style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
                     modifier = Modifier.padding(top = 6.dp),
                 )

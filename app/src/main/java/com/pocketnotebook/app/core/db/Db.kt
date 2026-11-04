@@ -195,6 +195,20 @@ class Db(context: Context) : Closeable {
 }
 
 /**
+ * ContentValues wraps an android.util.ArrayMap whose entrySet.toArray()
+ * throws UnsupportedOperationException on device (MapCollections.java:246).
+ * valueSet().toList() therefore crashed EVERY DB write in alpha.3 — notebook
+ * create crashed on tap, and downloads finished but never registered (the
+ * worker died on the post-download upsert, after the file had landed).
+ * Iterating keySet() is the only walk that is safe on every Android version.
+ */
+private fun contentValuesEntries(values: ContentValues): List<Pair<String, Any?>> {
+    val out = ArrayList<Pair<String, Any?>>(values.size())
+    for (k in values.keySet()) out.add(k to values.get(k))
+    return out
+}
+
+/**
  * Minimal façade over the androidx.sqlite driver that keeps the repo layer close
  * to the old framework API (insert / update / execSQL / rawQuery / transactions),
  * so the whole layer is auditable in one place.
@@ -225,8 +239,8 @@ class SqlDb(private val conn: SQLiteConnection) {
      * same statement — no last_insert_rowid() race on the shared connection.
      */
     fun insert(table: String, nullColumnHack: String?, values: ContentValues): Long {
-        val entries = values.valueSet().toList()
-        val cols = entries.joinToString(", ") { "\"${it.key}\"" }
+        val entries = contentValuesEntries(values)
+        val cols = entries.joinToString(", ") { "\"${it.first}\"" }
         val marks = entries.joinToString(", ") { "?" }
         val sql = if (entries.isEmpty()) {
             // Matches the framework contract: an empty values map needs the
@@ -236,7 +250,7 @@ class SqlDb(private val conn: SQLiteConnection) {
             "INSERT INTO \"$table\" ($cols) VALUES ($marks) RETURNING id"
         }
         conn.prepare(sql).use { s ->
-            entries.forEachIndexed { i, e -> Db.bind(s, i + 1, e.value) }
+            entries.forEachIndexed { i, e -> Db.bind(s, i + 1, e.second) }
             check(s.step()) { "INSERT produced no row" }
             return s.getLong(0)
         }
@@ -248,11 +262,11 @@ class SqlDb(private val conn: SQLiteConnection) {
         whereClause: String,
         whereArgs: Array<out Any?>?,
     ): Int {
-        val entries = values.valueSet().toList()
+        val entries = contentValuesEntries(values)
         if (entries.isEmpty()) return 0
-        val sets = entries.joinToString(", ") { "\"${it.key}\" = ?" }
+        val sets = entries.joinToString(", ") { "\"${it.first}\" = ?" }
         conn.prepare("UPDATE \"$table\" SET $sets WHERE $whereClause").use { s ->
-            entries.forEachIndexed { i, e -> Db.bind(s, i + 1, e.value) }
+            entries.forEachIndexed { i, e -> Db.bind(s, i + 1, e.second) }
             whereArgs?.forEachIndexed { i, a -> Db.bind(s, entries.size + i + 1, a) }
             s.step()
         }

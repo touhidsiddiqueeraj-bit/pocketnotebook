@@ -82,8 +82,8 @@ fun HomeScreen(nav: NavHostController) {
         if (notebooks.isEmpty()) {
             com.pocketnotebook.app.ui.EmptyState(
                 icon = Icons.Rounded.Add,
-                title = "No notebooks yet",
-                body = "Create one, add sources — PDFs, docs, web pages, pasted text — then chat with citations, generate reports, quizzes and audio overviews.",
+                title = "No notebooks",
+                body = "Tap + to create one.",
             )
         } else {
             LazyColumn(
@@ -125,7 +125,7 @@ fun HomeScreen(nav: NavHostController) {
             GlassTextField(
                 value = title,
                 onValueChange = { title = it },
-                placeholder = "e.g. Thesis research, Battery chemistry…",
+                placeholder = "Notebook title",
                 singleLine = true,
             )
             Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -144,12 +144,6 @@ fun HomeScreen(nav: NavHostController) {
 
     showDelete?.let { nb ->
         GlassDialog(onDismiss = { showDelete = null }, title = "Delete \"${nb.title}\"?") {
-            Text(
-                "This permanently removes the notebook, its sources, chats and artifacts.",
-                style = MaterialTheme.typography.bodySmall,
-                color = glass.textMuted,
-                modifier = Modifier.padding(bottom = 14.dp),
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 GlassButton("Keep", onClick = { showDelete = null }, modifier = Modifier.weight(1f))
                 GlassButton("Delete", onClick = {

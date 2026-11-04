@@ -40,7 +40,6 @@ import com.pocketnotebook.app.ui.GlassDialog
 import com.pocketnotebook.app.ui.GlassScaffold
 import com.pocketnotebook.app.ui.formatBytes
 import com.pocketnotebook.app.ui.rememberContainer
-import com.pocketnotebook.app.ui.timeAgo
 import com.pocketnotebook.app.ui.theme.GlassButton
 import com.pocketnotebook.app.ui.theme.GlassChip
 import com.pocketnotebook.app.ui.theme.GlassIconButton
@@ -77,9 +76,18 @@ fun ModelsScreen(nav: NavHostController) {
         installed = container.modelRepo.listAll()
     }
 
+    // Pick up orphaned model files (e.g. downloads finished under a build
+    // whose DB write crashed) so they show up as installed without a re-download.
+    LaunchedEffect(Unit) {
+        runCatching { com.pocketnotebook.app.core.hf.ModelScanner.scanAndRegister(container) }
+        reload()
+    }
+
+    // Poll unconditionally: recomposition redraws progress, but the INSTALLED
+    // list is a snapshot that must also refresh when a worker finishes.
     LaunchedEffect(Unit) {
         while (true) {
-            if (runningInfos.isNotEmpty()) reload()
+            reload()
             kotlinx.coroutines.delay(2000)
         }
     }
@@ -94,7 +102,10 @@ fun ModelsScreen(nav: NavHostController) {
     fun enqueue(repoId: String, fileName: String, slot: String) {
         val id = fileName.hashCode().toLong()
         scope.launch {
-            val size = container.hfApi.fileSize(repoId, fileName)
+            // Blocking OkHttp call — must stay off the main thread.
+            val size = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                container.hfApi.fileSize(repoId, fileName)
+            }
             WorkScheduler.enqueueDownload(context, id, repoId, fileName, slot, size)
         }
     }
@@ -134,7 +145,7 @@ fun ModelsScreen(nav: NavHostController) {
             // ---- active slots ----
             item {
                 Text(
-                    "ACTIVE SLOTS",
+                    "SLOTS",
                     style = MaterialTheme.typography.labelSmall,
                     color = glass.textMuted,
                     modifier = Modifier.padding(start = 6.dp, top = 4.dp),
@@ -142,14 +153,9 @@ fun ModelsScreen(nav: NavHostController) {
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SlotRow("Chat brain", ModelSlot.CHAT, runtimeState.chatLoading, runtimeState.chatPath, runtimeState.chatMeta?.desc)
-                    SlotRow("Embeddings", ModelSlot.EMBED, runtimeState.embedLoading, runtimeState.embedPath, null)
-                    SlotRow(
-                        "Speech (LFM3-Audio · Phase 0)",
-                        ModelSlot.AUDIO, false,
-                        container.prefs.activeModelPath(ModelSlot.AUDIO),
-                        "Pre-download now; voice features activate after the Phase 0 native wiring",
-                    )
+                    SlotRow("Chat", ModelSlot.CHAT, runtimeState.chatLoading, runtimeState.chatPath)
+                    SlotRow("Embeddings", ModelSlot.EMBED, runtimeState.embedLoading, runtimeState.embedPath)
+                    SlotRow("Speech", ModelSlot.AUDIO, false, container.prefs.activeModelPath(ModelSlot.AUDIO))
                 }
             }
 
@@ -218,7 +224,7 @@ fun ModelsScreen(nav: NavHostController) {
                             Text(m.fileName, style = MaterialTheme.typography.titleSmall, color = glass.text,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                "${m.repoId} · ${formatBytes(m.sizeBytes)} · added ${timeAgo(m.addedAt)}",
+                                formatBytes(m.sizeBytes),
                                 style = MaterialTheme.typography.labelSmall, color = glass.textMuted,
                                 maxLines = 1,
                             )
@@ -239,7 +245,7 @@ fun ModelsScreen(nav: NavHostController) {
             // ---- curated catalog ----
             item {
                 Text(
-                    "CURATED (VERIFIED)",
+                    "SUGGESTED",
                     style = MaterialTheme.typography.labelSmall,
                     color = glass.textMuted,
                     modifier = Modifier.padding(start = 6.dp, top = 8.dp),
@@ -266,18 +272,6 @@ fun ModelsScreen(nav: NavHostController) {
                             color = glass.textMuted,
                         )
                     }
-                    Text(
-                        entry.blurb,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = glass.textMuted,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                    Text(
-                        "${entry.license} · huggingface.co/${entry.repoId}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = glass.textMuted.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
                     GlassButton(
                         text = "Download",
                         icon = Icons.Rounded.CloudDownload,
@@ -294,7 +288,7 @@ fun ModelsScreen(nav: NavHostController) {
             // ---- arbitrary HF search ----
             item {
                 Text(
-                    "ANY HF GGUF REPO",
+                    "SEARCH HUGGING FACE",
                     style = MaterialTheme.typography.labelSmall,
                     color = glass.textMuted,
                     modifier = Modifier.padding(start = 6.dp, top = 8.dp),
@@ -307,18 +301,12 @@ fun ModelsScreen(nav: NavHostController) {
                     GlassTextField(
                         value = query,
                         onValueChange = { query = it },
-                        placeholder = "e.g. LiquidAI/LFM3-1.7B-GGUF",
+                        placeholder = "repo, e.g. LiquidAI/LFM3-1.7B-GGUF",
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
                     GlassIconButton(Icons.Rounded.Search, contentDescription = "Search") { search() }
                 }
-                Text(
-                    "Unverified repos may not load — the engine checks GGUF metadata at load time.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = glass.textMuted.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(top = 6.dp),
-                )
             }
             items(searchResults, key = { it.id }) { hit ->
                 GlassRow(onClick = {
@@ -334,7 +322,7 @@ fun ModelsScreen(nav: NavHostController) {
                         Text(hit.id, style = MaterialTheme.typography.titleSmall, color = glass.text,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "downloads ${hit.downloads} · likes ${hit.likes}",
+                            "downloads ${hit.downloads}",
                             style = MaterialTheme.typography.labelSmall, color = glass.textMuted,
                         )
                     }
@@ -351,7 +339,7 @@ fun ModelsScreen(nav: NavHostController) {
                 Text("Loading file list…", style = MaterialTheme.typography.bodySmall, color = glass.textMuted)
             } else {
                 Text(
-                    "Slot for the download:",
+                    "Slot",
                     style = MaterialTheme.typography.labelMedium,
                     color = glass.textMuted,
                 )
@@ -389,7 +377,6 @@ private fun SlotRow(
     slot: String,
     loading: Boolean,
     activePath: String?,
-    metaLine: String?,
 ) {
     val glass = LocalGlassColors.current
     GlassPanel(corner = 18.dp, modifier = Modifier.fillMaxWidth()) {
@@ -405,15 +392,15 @@ private fun SlotRow(
             } else if (activePath != null) {
                 Icon(Icons.Rounded.Verified, null, tint = glass.accent)
             } else {
-                Text("empty", style = MaterialTheme.typography.labelSmall, color = glass.textMuted)
+                Text("—", style = MaterialTheme.typography.labelSmall, color = glass.textMuted)
             }
         }
         val file = activePath?.let { java.io.File(it) }
         Text(
             when {
-                loading -> "Warming up the mmap…"
+                loading -> "Loading…"
                 file != null && file.exists() -> file.name + " · " + formatBytes(file.length())
-                else -> metaLine ?: "No model installed for this slot."
+                else -> "Not set"
             },
             style = MaterialTheme.typography.bodySmall,
             color = glass.textMuted,

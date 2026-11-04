@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -37,6 +36,7 @@ import androidx.navigation.NavHostController
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.pocketnotebook.app.core.db.ModelSlot
+import com.pocketnotebook.app.core.hf.ModelScanner
 import com.pocketnotebook.app.core.work.WorkScheduler
 import com.pocketnotebook.app.ui.GlassScaffold
 import com.pocketnotebook.app.ui.rememberContainer
@@ -46,7 +46,7 @@ import com.pocketnotebook.app.ui.theme.GlassPanel
 import com.pocketnotebook.app.ui.theme.GlassProgressBar
 import com.pocketnotebook.app.ui.theme.LocalGlassColors
 
-/** First-run screen: privacy blurb + one-tap model download. */
+/** First-run screen: privacy line + one-tap model download. */
 @Composable
 fun OnboardingScreen(nav: NavHostController) {
     val container = rememberContainer()
@@ -56,33 +56,59 @@ fun OnboardingScreen(nav: NavHostController) {
     val nativeReady = container.runtime.nativeReady
     var hasChat by remember { mutableStateOf(container.prefs.activeModelPath(ModelSlot.CHAT) != null) }
     var hasEmbed by remember { mutableStateOf(container.prefs.activeModelPath(ModelSlot.EMBED) != null) }
-    var downloading by remember { mutableStateOf(false) }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
 
+    // Pick up model files that are already on disk but never registered
+    // (alpha.3 downloads) so the download step disappears without a re-download.
+    fun refreshSlots() {
+        hasChat = container.prefs.activeModelPath(ModelSlot.CHAT) != null
+        hasEmbed = container.prefs.activeModelPath(ModelSlot.EMBED) != null
+    }
+
+    LaunchedEffect(Unit) {
+        runCatching { ModelScanner.scanAndRegister(container) }
+        refreshSlots()
+    }
+
     // Live download progress from the download workers.
     val workInfos by WorkManager.getInstance(context)
         .getWorkInfosByTagFlow("download")
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val running = workInfos.filter { it.state == WorkInfo.State.RUNNING }
-    val progressBytes = running.maxOfOrNull { it.progress.getLong("bytes", 0) } ?: 0
-    val progressTotal = running.maxOfOrNull { it.progress.getLong("total", 0) } ?: 0
-    val progressPercent = running.maxOfOrNull { it.progress.getInt("percent", 0) } ?: 0
-    val allDone = workInfos.isNotEmpty() && running.isEmpty() &&
-        workInfos.any { it.state == WorkInfo.State.SUCCEEDED }
+    val running = workInfos.any { it.state == WorkInfo.State.RUNNING }
+    val queued = workInfos.any { it.state == WorkInfo.State.ENQUEUED }
+    val succeededCount = workInfos.count { it.state == WorkInfo.State.SUCCEEDED }
+    val failedCount = workInfos.count { it.state == WorkInfo.State.FAILED }
+    val failed = failedCount > 0 && !running && !queued && !hasChat
 
-    LaunchedEffect(allDone) {
-        if (allDone) {
-            hasChat = container.prefs.activeModelPath(ModelSlot.CHAT) != null
-            hasEmbed = container.prefs.activeModelPath(ModelSlot.EMBED) != null
+    val info = workInfos.firstOrNull { it.state == WorkInfo.State.RUNNING }
+    val percent = info?.progress?.getInt("percent", 0) ?: 0
+    val bytes = info?.progress?.getLong("bytes", 0) ?: 0
+    val total = info?.progress?.getLong("total", 0) ?: 0
+
+    // Refresh slot state whenever downloads reach a terminal state.
+    LaunchedEffect(succeededCount, failedCount) {
+        if (succeededCount + failedCount > 0) {
+            runCatching { ModelScanner.scanAndRegister(container) }
+            refreshSlots()
         }
     }
 
     fun finish() {
         container.prefs.onboardDone = true
         nav.navigate("home") { popUpTo("onboarding") { inclusive = true } }
+    }
+
+    fun startDownload() {
+        if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        for (entry in listOf("lfm3-1.7b-qadq4", "bge-small-q8").mapNotNull { container.modelCatalog.byId(it) }) {
+            val id = entry.fileName.hashCode().toLong()
+            WorkScheduler.enqueueDownload(
+                context, id, entry.repoId, entry.fileName, entry.slot, entry.sizeBytes,
+            )
+        }
     }
 
     GlassScaffold { Column(
@@ -103,23 +129,21 @@ fun OnboardingScreen(nav: NavHostController) {
             color = glass.text,
         )
         Text(
-            "An offline research companion.\nSources in, answers with citations out — generated on this phone.",
+            "Your offline NotebookLM.",
             style = MaterialTheme.typography.bodyMedium,
             color = glass.textMuted,
             textAlign = TextAlign.Center,
         )
-        GlassPanel(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                "100% on-device · no account · no telemetry.\nThe only network traffic is what you ask for: model downloads and web pages you add as sources.",
-                style = MaterialTheme.typography.bodySmall,
-                color = glass.textMuted,
-            )
-        }
+        Text(
+            "100% on-device · no account · no tracking",
+            style = MaterialTheme.typography.labelSmall,
+            color = glass.textMuted,
+        )
 
         if (!nativeReady) {
             GlassPanel(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "This APK was built without the AI engine (kit build). Grab a release APK from the project's GitHub Releases to run models on-device.",
+                    "Kit build — no AI engine. Install a release APK.",
                     style = MaterialTheme.typography.bodySmall,
                     color = glass.accent3,
                 )
@@ -128,42 +152,54 @@ fun OnboardingScreen(nav: NavHostController) {
 
         if (!hasChat) {
             GlassPanel(modifier = Modifier.fillMaxWidth()) {
-                Text("Step 1 · Download the brain", style = MaterialTheme.typography.titleMedium, color = glass.text)
                 Text(
-                    "LFM3-1.7B QAD-Q4_0 (${formatBytes(1049615680)}) — fastest in-class on-device model — plus bge-small embeddings (35 MB) for semantic search.",
+                    "Download models",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = glass.text,
+                )
+                Text(
+                    "LFM3-1.7B (${formatBytes(1_049_615_680)}) + embeddings (${formatBytes(36_806_944)})",
                     style = MaterialTheme.typography.bodySmall,
                     color = glass.textMuted,
                     modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
                 )
-                if (downloading && running.isNotEmpty()) {
-                    GlassProgressBar((progressPercent / 100f).coerceIn(0f, 1f))
-                    Text(
-                        if (progressTotal > 0) "$progressPercent% · ${formatBytes(progressBytes)} of ${formatBytes(progressTotal)}"
-                        else "Connecting to Hugging Face…",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = glass.textMuted,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                } else if (downloading) {
-                    Text("Queued…", style = MaterialTheme.typography.labelMedium, color = glass.textMuted)
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                when {
+                    running -> {
+                        GlassProgressBar((percent / 100f).coerceIn(0f, 1f))
+                        Text(
+                            if (total > 0) "$percent% · ${formatBytes(bytes)} / ${formatBytes(total)}"
+                            else "Connecting…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = glass.textMuted,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    queued -> {
+                        Text("Queued…", style = MaterialTheme.typography.labelMedium, color = glass.textMuted)
+                    }
+                    failed -> {
+                        Text(
+                            "Download failed",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = glass.accent3,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
                         GlassButton(
-                            text = "Download & set up",
+                            text = "Retry",
+                            primary = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                        ) { startDownload() }
+                    }
+                    else -> {
+                        GlassButton(
+                            text = "Download",
                             icon = Icons.Rounded.GetApp,
                             primary = true,
                             enabled = nativeReady,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            downloading = true
-                            for (entry in listOf("lfm3-1.7b-qadq4", "bge-small-q8").mapNotNull { container.modelCatalog.byId(it) }) {
-                                val id = entry.fileName.hashCode().toLong()
-                                WorkScheduler.enqueueDownload(
-                                    context, id, entry.repoId, entry.fileName, entry.slot, entry.sizeBytes,
-                                )
-                            }
-                        }
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { startDownload() }
                     }
                 }
             }
@@ -172,8 +208,7 @@ fun OnboardingScreen(nav: NavHostController) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(Icons.Rounded.DownloadDone, null, tint = glass.accent)
                     Text(
-                        if (hasEmbed) "Brain + embeddings installed. You're set."
-                        else "Brain installed. Embeddings can be added in Models.",
+                        if (hasEmbed) "Models ready." else "Chat model ready.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = glass.text,
                     )
@@ -182,16 +217,11 @@ fun OnboardingScreen(nav: NavHostController) {
         }
 
         GlassButton(
-            text = if (hasChat) "Enter PocketNotebook" else "Skip for now",
+            text = if (hasChat) "Start" else "Skip",
             onClick = { finish() },
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 52.dp),
-        )
-        Text(
-            "English-only in this version · models & voices via Hugging Face",
-            style = MaterialTheme.typography.labelSmall,
-            color = glass.textMuted,
         )
     } }
 }

@@ -124,12 +124,6 @@ fun NotebookScreen(notebookId: Long, nav: NavHostController) {
 
     if (showDelete) {
         GlassDialog(onDismiss = { showDelete = false; reload() }, title = "Delete this notebook?") {
-            Text(
-                "Sources, chats, artifacts and notes go with it.",
-                style = MaterialTheme.typography.bodySmall,
-                color = glass.textMuted,
-                modifier = Modifier.padding(bottom = 14.dp),
-            )
             Row {
                 GlassButton("Keep", onClick = { showDelete = false; reload() }, modifier = Modifier.weight(1f))
                 GlassButton("Delete", onClick = {

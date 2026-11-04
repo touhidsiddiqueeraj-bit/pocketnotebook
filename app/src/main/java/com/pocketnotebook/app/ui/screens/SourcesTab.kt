@@ -77,7 +77,7 @@ fun SourcesTab(notebookId: Long, nav: NavHostController) {
 
     fun addPicked(uri: Uri, name: String) {
         if (sources.size >= MAX_SOURCES) {
-            notice = "NotebookLM parity: $MAX_SOURCES sources max per notebook."
+            notice = "Max $MAX_SOURCES sources."
             return
         }
         try {
@@ -127,8 +127,8 @@ fun SourcesTab(notebookId: Long, nav: NavHostController) {
         if (sources.isEmpty()) {
             EmptyState(
                 icon = Icons.Rounded.Description,
-                title = "No sources yet",
-                body = "Add PDFs, DOCX, TXT, Markdown, web pages — or paste text/transcripts. Up to $MAX_SOURCES sources, processed entirely on-device.",
+                title = "No sources",
+                body = "Add files, links or pasted text.",
             )
         } else {
             LazyColumn(
@@ -174,12 +174,6 @@ fun SourcesTab(notebookId: Long, nav: NavHostController) {
                 }
             }
         }
-        Text(
-            "Long-press a source to delete it.",
-            style = MaterialTheme.typography.labelSmall,
-            color = glass.textMuted.copy(alpha = 0.7f),
-            modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp),
-        )
     }
 
     // ---------------- URL dialog ----------------
@@ -244,6 +238,6 @@ private fun sourceIcon(type: String) = when (type) {
 private fun sourceMeta(src: Source): String = when (src.status) {
     SourceStatus.FAILED -> "Failed: ${src.error ?: "unknown"}".take(90)
     SourceStatus.PENDING -> "Queued…"
-    SourceStatus.PROCESSING -> "Processing on-device…"
-    else -> "${src.wordCount} words · ${src.chunkCount} chunks · ${timeAgo(src.addedAt)}"
+    SourceStatus.PROCESSING -> "Processing…"
+    else -> "${src.wordCount} words"
 }

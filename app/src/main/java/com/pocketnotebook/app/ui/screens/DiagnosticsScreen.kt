@@ -190,7 +190,7 @@ fun DiagnosticsScreen(nav: NavHostController) {
             GlassPanel(corner = 20.dp, modifier = Modifier.fillMaxWidth()) {
                 if (crashReport == null) {
                     Text(
-                        "No crashes recorded. If PocketNotebook closes on you, the reason shows up here next launch.",
+                        "No crashes recorded.",
                         style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
                     )
                 } else {
