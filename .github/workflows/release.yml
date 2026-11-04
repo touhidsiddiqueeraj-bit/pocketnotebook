@@ -166,7 +166,7 @@ jobs:
                     "PocketNotebook-${{ github.ref_name }}-arm64-gpu.apk" > "checksums-${{ github.ref_name }}.txt"
 
       - name: Create GitHub Release & attach APKs
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             PocketNotebook-${{ github.ref_name }}-arm64.apk
