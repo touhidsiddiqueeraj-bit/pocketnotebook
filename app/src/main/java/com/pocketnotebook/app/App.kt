@@ -13,6 +13,7 @@ import com.pocketnotebook.app.core.db.SourceRepo
 import com.pocketnotebook.app.core.engine.LlmRuntime
 import com.pocketnotebook.app.core.hf.HfApi
 import com.pocketnotebook.app.core.hf.HfDownloader
+import com.pocketnotebook.app.core.hf.ModelScanner
 import com.pocketnotebook.app.core.ingest.IngestPipeline
 import com.pocketnotebook.app.core.llm.ChatService
 import com.pocketnotebook.app.core.llm.StudioService
@@ -45,7 +46,7 @@ class App : Application() {
             // Self-heal: register model files that landed on disk but never
             // made it into the DB (alpha.3 downloads whose post-download
             // write crashed) so they are detected without a re-download.
-            runCatching { core.hf.ModelScanner.scanAndRegister(container) }
+            runCatching { ModelScanner.scanAndRegister(container) }
         } catch (t: Throwable) {
             bootError = t.message ?: t.toString()
             CrashGuard.recordBootFailure(this, t)
