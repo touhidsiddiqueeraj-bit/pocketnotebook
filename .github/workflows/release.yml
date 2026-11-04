@@ -76,7 +76,11 @@ jobs:
           set -euxo pipefail
           NDK_VER=27.0.12077973
           NDK="$ANDROID_HOME/ndk/$NDK_VER"
-          if [ ! -d "$NDK" ]; then
+          # Verify the actual artifact we need, not the directory: sdkmanager
+          # creates the NDK dir long before the install finishes, and a
+          # transient sdkmanager failure leaves a partial dir behind.
+          NDK_OK() { [ -f "$NDK/build/cmake/android.toolchain.cmake" ]; }
+          if ! NDK_OK; then
             SDKMGR=""
             for c in "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
                      "/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"; do
@@ -88,9 +92,18 @@ jobs:
               SDKMGR=/tmp/clt/cmdline-tools/bin/sdkmanager
             fi
             # `yes |` trips pipefail when sdkmanager closes the pipe (yes gets
-            # SIGPIPE): that exit status is benign — verify the outcome instead.
-            yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" "ndk;$NDK_VER" >/dev/null 2>&1 || true
-            [ -d "$NDK" ] || { echo "FATAL: NDK $NDK_VER did not install"; exit 1; }
+            # SIGPIPE) — the pipeline status is meaningless here; decide on the
+            # toolchain file instead. Keep sdkmanager's output: a partial
+            # download must be visible in the log when it retries/fails.
+            for attempt in 1 2 3; do
+              yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" "ndk;$NDK_VER" >/tmp/sdkmgr.log 2>&1 || true
+              NDK_OK && break
+              echo "--- NDK install attempt $attempt incomplete; last sdkmanager output: ---"
+              tail -5 /tmp/sdkmgr.log || true
+              rm -rf "$NDK"
+              sleep 5
+            done
+            NDK_OK || { echo "FATAL: NDK $NDK_VER did not install"; cat /tmp/sdkmgr.log; exit 1; }
           fi
           cd "$RUNNER_TEMP"
           git clone -q --depth 1 --branch v2026.05.29 https://github.com/KhronosGroup/OpenCL-Headers
