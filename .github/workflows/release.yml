@@ -87,7 +87,10 @@ jobs:
               unzip -q /tmp/clt.zip -d /tmp/clt
               SDKMGR=/tmp/clt/cmdline-tools/bin/sdkmanager
             fi
-            yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" "ndk;$NDK_VER" >/dev/null
+            # `yes |` trips pipefail when sdkmanager closes the pipe (yes gets
+            # SIGPIPE): that exit status is benign — verify the outcome instead.
+            yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" "ndk;$NDK_VER" >/dev/null 2>&1 || true
+            [ -d "$NDK" ] || { echo "FATAL: NDK $NDK_VER did not install"; exit 1; }
           fi
           cd "$RUNNER_TEMP"
           git clone -q --depth 1 --branch v2026.05.29 https://github.com/KhronosGroup/OpenCL-Headers
