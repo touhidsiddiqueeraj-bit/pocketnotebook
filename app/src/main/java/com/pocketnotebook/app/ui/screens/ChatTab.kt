@@ -114,9 +114,10 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
                     GlassButton("Dismiss", onClick = { error = null }, modifier = Modifier.weight(1f))
                 }
             }
-            !container.runtime.nativeReady -> Banner("Kit build — no AI engine.") {
-                GlassButton("Models", onClick = { nav.navigate(Routes.MODELS) })
-            }
+            !container.runtime.nativeReady ->
+                Banner(container.runtime.engineIssue ?: "AI engine unavailable.") {
+                    GlassButton("Diagnostics", onClick = { nav.navigate(Routes.DIAGNOSTICS) })
+                }
             !modelSet -> Banner("No chat model.") {
                 GlassButton("Get model", primary = true, onClick = { nav.navigate(Routes.MODELS) })
             }

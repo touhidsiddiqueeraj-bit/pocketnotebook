@@ -5,7 +5,8 @@ Two build flavors, one codebase:
 | Flavor | Command | Contains | Use |
 |---|---|---|---|
 | **Kit** | `./gradlew assembleDebug -PskipNative=true` | Stub `libpocketllm.so` (native calls degrade) | Fast CI checks, UI work |
-| **Full** | `./gradlew assembleRelease` (requires llama.cpp checkout) | Real llama.cpp engine statically linked | Sideload / release |
+| **Full (CPU)** | `./gradlew assembleRelease` (requires llama.cpp checkout) | Real llama.cpp CPU engine (`libpocketllm.so`), statically linked — loads on every device | Sideload / standard release APK |
+| **Full (GPU)** | `./gradlew assembleRelease -PgpuOpencl=true` | OpenCL/Adreno engine (`libpocketllm_ocl.so`) | Experimental `-gpu` release APK |
 
 ## Requirements
 
@@ -41,23 +42,38 @@ automatically. The commit currently shipped:
 
 - `app/src/main/cpp/pocket_jni.cpp` — the only C++ we own: model load/unload,
   chat-template application, streaming completion (token callback bridge),
-  embeddings, abort. One `libpocketllm.so`.
+  embeddings, abort. One engine lib per build (`libpocketllm.so` /
+  `libpocketllm_ocl.so`).
 - `CMakeLists.txt` builds llama.cpp with `BUILD_SHARED_LIBS=OFF` and links it
   **statically** — no `.so` dependency ordering issues on any Android version.
 - Update the pin → bump `LLAMA_REF` in `.github/workflows/native.yml` and
   `release.yml` and the engine line in Settings.
 
-### GPU acceleration (OpenCL / Adreno)
+### GPU acceleration (OpenCL / Adreno) — experimental
 
-Since v0.1.0-alpha.9 the build compiles the ggml **OpenCL backend**
-(`GGML_OPENCL=ON`), so on Snapdragon devices all model layers offload to the
-Adreno GPU automatically (`n_gpu_layers` defaults to "all"). Kernels are
-embedded into `libpocketllm.so` (no `.cl` files shipped) and the Adreno-tuned
-matmul kernels are enabled. Verify on-device: Settings → Diagnostics →
-"GPU:" shows the OpenCL device and the "offloaded N/M layers to GPU" line.
+Since v0.1.0-alpha.10 there are **two engine libs** and two release APKs:
 
-Build requirements (CI does this for you — see the "OpenCL stub" step in
-`.github/workflows/native.yml`):
+| Variant | Build | Engine lib | Ships in |
+|---|---|---|---|
+| CPU (default) | `./gradlew assembleRelease` | `libpocketllm.so` | standard APK |
+| OpenCL/Adreno | `./gradlew assembleRelease -PgpuOpencl=true` | `libpocketllm_ocl.so` | experimental `-gpu` APK |
+
+`PocketLlm.kt` tries `pocketllm_ocl` first and falls back to `pocketllm`, so a
+GPU lib can never leave the app engineless. That fallback is the fix for the
+alpha.9 regression: the OpenCL engine was the ONLY lib and it hard-links
+`libOpenCL.so`, so ROMs that do not expose that vendor lib to apps (it must be
+listed in `/vendor/etc/public.libraries.txt`) rejected the whole engine at
+dlopen time — and the app showed "Kit build" on a perfectly good release APK
+(load failures were mislabeled as kit builds).
+
+The OpenCL engine offloads all model layers to the Adreno GPU automatically
+(`n_gpu_layers` defaults to "all"; kernels are embedded into the .so, no `.cl`
+files shipped; Adreno-tuned matmul/attention kernels enabled). Verify on-device:
+Settings → Diagnostics → "GPU:" shows the OpenCL device and the "offloaded
+N/M layers to GPU" line.
+
+Build requirements for the -gpu variant (CI does this for you — see the
+"OpenCL stub" step in `.github/workflows/release.yml`):
 
 1. Khronos `OpenCL-Headers` copied into the NDK sysroot `usr/include/`.
 2. Khronos `OpenCL-ICD-Loader` built for `arm64-v8a` with the NDK toolchain —
@@ -66,9 +82,9 @@ Build requirements (CI does this for you — see the "OpenCL stub" step in
    dir) inside the NDK sysroot.
 
 At runtime the `libOpenCL.so` dependency resolves to the **device's own vendor
-OpenCL** (a public library on Snapdragon devices). Devices that do not expose
-one (most MediaTek/Exynos) would fail to load `libpocketllm.so` — build those
-CPU-only with `-PgpuOpencl=false`.
+OpenCL**. No vendor lib, or not exposed to apps? The GPU engine refuses to
+load and the app falls back (standard APK) or tells you to install the
+standard APK (-gpu APK).
 
 ### 16 KB page-size compliance (read this before touching the NDK)
 
@@ -122,7 +138,7 @@ Release signing priority (see `app/build.gradle.kts`):
 |---|---|---|
 | `android-ci.yml` | push/PR to main, develop | kit tests + lint + APK artifact |
 | `native.yml` | push to main, manual | full native release APK artifact + SHA256 |
-| `release.yml` | tag `v*` | full native release APK → GitHub Release |
+| `release.yml` | tag `v*` | both native release APKs (CPU + GPU) → GitHub Release |
 
 ## Models & licenses
 

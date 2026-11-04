@@ -140,10 +140,10 @@ fun OnboardingScreen(nav: NavHostController) {
             color = glass.textMuted,
         )
 
-        if (!nativeReady) {
+        container.runtime.engineIssue?.let { issue ->
             GlassPanel(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "Kit build — no AI engine. Install a release APK.",
+                    issue,
                     style = MaterialTheme.typography.bodySmall,
                     color = glass.accent3,
                 )

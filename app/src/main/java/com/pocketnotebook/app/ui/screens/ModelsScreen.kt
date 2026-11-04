@@ -128,7 +128,7 @@ fun ModelsScreen(nav: NavHostController) {
                         .padding(start = 12.dp),
                 )
                 Text(
-                    if (container.runtime.nativeReady) "engine ready" else "kit build",
+                    if (container.runtime.nativeReady) "engine ready" else "engine unavailable",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (container.runtime.nativeReady) glass.accent else glass.accent3,
                     modifier = Modifier.padding(end = 8.dp),

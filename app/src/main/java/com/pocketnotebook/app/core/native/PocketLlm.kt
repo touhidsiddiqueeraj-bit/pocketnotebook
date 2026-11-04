@@ -20,16 +20,42 @@ object PocketLlm {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * The exact System.loadLibrary failure reason, or null when the lib loaded.
-     * On 16 KB-page devices with a 4 KB-aligned lib this is the string that
-     * explains the crash (surfaced in Settings → Diagnostics).
+     * Engine libs, tried in order (see app/src/main/cpp/CMakeLists.txt):
+     *  1. "pocketllm_ocl" — OpenCL/Adreno GPU engine; shipped only in the
+     *     experimental -gpu APK. It hard-links the device's vendor
+     *     libOpenCL.so, and ROMs that do not expose that lib to apps reject
+     *     the whole .so — so it must never be the only engine on board.
+     *  2. "pocketllm" — CPU engine; shipped in every APK and must always
+     *     load. A missing GPU lib is normal (standard APK), not an error.
      */
-    val loadError: String? = try {
+    private val gpuLoadError: String? = try {
+        System.loadLibrary("pocketllm_ocl")
+        null
+    } catch (t: Throwable) {
+        t.message ?: t.toString()
+    }
+
+    private val cpuLoadError: String? = if (gpuLoadError == null) null else try {
         System.loadLibrary("pocketllm")
         null
     } catch (t: Throwable) {
         t.message ?: t.toString()
     }
+
+    /** Which engine lib is mapped: "opencl", "cpu", or "" when none loaded. */
+    val engineVariant: String = when {
+        gpuLoadError == null -> "opencl"
+        cpuLoadError == null -> "cpu"
+        else -> ""
+    }
+
+    /**
+     * The fatal System.loadLibrary failure when NO engine lib could be
+     * mapped (null when one loaded) — e.g. a 16 KB-page device rejecting a
+     * 4 KB-aligned lib, or the -gpu APK on a ROM without a public
+     * libOpenCL.so. Surfaced in Settings → Diagnostics.
+     */
+    val loadError: String? = if (engineVariant.isNotEmpty()) null else cpuLoadError
 
     /** Last engine error (model load / context init / decode), or null. */
     fun lastError(): String? {
@@ -41,8 +67,27 @@ object PocketLlm {
         }
     }
 
-    /** True when the native lib was mapped into the process. */
+    /** True when any native engine lib was mapped into the process. */
     val libLoaded: Boolean get() = loadError == null
+
+    /**
+     * Banner text for the "engine unavailable" state, or null when the full
+     * engine is ready. Splits the two failure classes alpha.9 conflated: a
+     * real kit build (stub .so, no engine compiled in) vs a LOAD failure —
+     * back then any load failure printed "Kit build", so a release APK
+     * whose OpenCL-linked engine was rejected by the ROM looked like a kit
+     * build on perfectly good hardware.
+     */
+    val engineIssue: String? get() = when {
+        fullEngine -> null
+        loadError != null ->
+            if (gpuLoadError != null && gpuLoadError.contains("libOpenCL"))
+                "GPU engine failed to load — this ROM does not expose OpenCL to apps " +
+                    "(experimental -gpu APK). Install the standard arm64 APK (CPU engine) instead."
+            else
+                "AI engine failed to load on this device. See Settings → Diagnostics for the reason."
+        else -> "Kit build — no AI engine compiled in. Install a release APK."
+    }
 
     /** True when the real llama.cpp engine is compiled into the app. */
     val fullEngine: Boolean by lazy {

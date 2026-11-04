@@ -20,7 +20,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("versionCode").getOrElse("1").toInt()
-        versionName = providers.gradleProperty("versionName").getOrElse("0.1.0-alpha.9")
+        versionName = providers.gradleProperty("versionName").getOrElse("0.1.0-alpha.10")
         vectorDrawables { useSupportLibrary = true }
 
         ndk {
@@ -30,10 +30,14 @@ android {
 
         externalNativeBuild {
             cmake {
-                // GPU backend switch: -PgpuOpencl=false builds CPU-only (e.g. for
-                // devices whose vendor does not expose libOpenCL.so).
+                // Engine variant switch (see app/src/main/cpp/CMakeLists.txt):
+                //  - false (default): CPU engine libpocketllm.so — loads on every
+                //    device; this is the standard APK.
+                //  - true: OpenCL/Adreno engine libpocketllm_ocl.so — only for
+                //    ROMs that expose libOpenCL.so to apps; ships in the -gpu APK.
+                // PocketLlm.kt tries the GPU lib first and falls back to CPU.
                 arguments += "-DPOCKET_OPENCL=" +
-                    (providers.gradleProperty("gpuOpencl").getOrElse("true").toBoolean())
+                    (providers.gradleProperty("gpuOpencl").getOrElse("false").toBoolean())
                 // ggml-opencl embeds its .cl kernels at build time via python —
                 // pin the interpreter so find_package(Python3) can't wander.
                 if (File("/usr/bin/python3").canExecute()) {

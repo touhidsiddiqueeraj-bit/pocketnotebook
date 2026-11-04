@@ -63,6 +63,9 @@ class LlmRuntime(
 
     val nativeReady: Boolean get() = PocketLlm.fullEngine
 
+    /** Banner text when the engine is unavailable (null = ready). */
+    val engineIssue: String? get() = PocketLlm.engineIssue
+
     // ------------------------------------------------------------------ chat
 
     suspend fun ensureChatLoaded(): Boolean {

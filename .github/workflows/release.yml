@@ -69,9 +69,12 @@ jobs:
         #   2. build the Khronos ICD loader for arm64 as a build-time stub
         #   3. drop the stub + Khronos CL headers into the NDK sysroot
         # At RUNTIME the dependency resolves to the device's own vendor
-        # libOpenCL.so (a public library on Snapdragon devices) — the stub is
-        # never shipped. Devices without a public libOpenCL.so must build with
-        # -PgpuOpencl=false (CPU-only).
+        # libOpenCL.so (a public library on many Snapdragon devices) — the
+        # stub is never shipped. ROMs that do not expose libOpenCL.so to
+        # apps reject the whole GPU engine at dlopen time — which is why the
+        # CPU engine stays the standard APK and this OpenCL engine ships
+        # only in the experimental -gpu APK (PocketLlm.kt falls back to the
+        # CPU engine when the GPU lib is absent).
         run: |
           set -euxo pipefail
           NDK_VER=27.0.12077973
@@ -133,32 +136,52 @@ jobs:
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Assemble release APK (native engine)
-        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
+      # Two engine variants, one APK each (see app/src/main/cpp/CMakeLists.txt):
+      #   standard = CPU engine (libpocketllm.so)  — loads on every device
+      #   -gpu     = OpenCL engine (libpocketllm_ocl.so) — Adreno acceleration,
+      #              only on ROMs that expose libOpenCL.so to apps.
+      # PocketLlm.kt tries the GPU lib first and falls back to the CPU lib.
+      - name: Assemble release APK (CPU engine — standard)
+        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PgpuOpencl=false --stacktrace
 
-      - name: Verify 16 KB page-size compliance
+      - name: Verify 16 KB compliance (CPU APK)
         # Gate: newer Android (15/16) devices reject 4 KB-aligned native libs
         # at load time — the exact cause of the v0.1.0-alpha.1 launch crash.
         run: python3 scripts/check_16k_alignment.py app/build/outputs/apk/release/app-release.apk
 
-      - name: Rename APK + checksums
+      - name: Rename CPU APK
+        run: mv app/build/outputs/apk/release/app-release.apk "PocketNotebook-${{ github.ref_name }}-arm64.apk"
+
+      - name: Assemble release APK (OpenCL GPU engine — experimental)
+        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PgpuOpencl=true --stacktrace
+
+      - name: Verify 16 KB compliance (GPU APK)
+        run: python3 scripts/check_16k_alignment.py app/build/outputs/apk/release/app-release.apk
+
+      - name: Rename GPU APK + checksums
         run: |
           mv app/build/outputs/apk/release/app-release.apk \
-             "PocketNotebook-${{ github.ref_name }}-arm64.apk"
-          sha256sum "PocketNotebook-${{ github.ref_name }}-arm64.apk" > "checksums-${{ github.ref_name }}.txt"
+             "PocketNotebook-${{ github.ref_name }}-arm64-gpu.apk"
+          sha256sum "PocketNotebook-${{ github.ref_name }}-arm64.apk" \
+                    "PocketNotebook-${{ github.ref_name }}-arm64-gpu.apk" > "checksums-${{ github.ref_name }}.txt"
 
-      - name: Create GitHub Release & attach APK
+      - name: Create GitHub Release & attach APKs
         uses: softprops/action-gh-release@v2
         with:
           files: |
             PocketNotebook-${{ github.ref_name }}-arm64.apk
+            PocketNotebook-${{ github.ref_name }}-arm64-gpu.apk
             checksums-${{ github.ref_name }}.txt
           generate_release_notes: true
           body: |
             **PocketNotebook ${{ github.ref_name }}** — offline NotebookLM clone for Android.
 
+            **Pick ONE APK:**
+            * `PocketNotebook-…-arm64.apk` — **standard: CPU engine**, loads on every device. When in doubt, this one.
+            * `PocketNotebook-…-arm64-gpu.apk` — **experimental: OpenCL/Adreno GPU engine**. Model layers offload to the GPU on ROMs that expose `libOpenCL.so` to apps; if onboarding shows an engine error, your ROM does not — install the standard APK instead (same signature, installs right over).
+
             * Install: sideload the APK (allow "install unknown apps"). arm64-v8a, Android 8.0+.
             * Models download on first run (LFM3-1.7B ~1 GB + bge-small embeddings 35 MB) — the APK stays ~80 MB.
-            * Engine: llama.cpp @ ${{ env.LLAMA_REF }}, statically linked.
-            * GPU: OpenCL backend (Adreno-tuned) — model layers offload to the GPU automatically on Snapdragon devices. Verify in Settings → Diagnostics ("GPU: …"). Devices without a public vendor libOpenCL.so (non-Adreno) are not supported by this build.
+            * Engine: llama.cpp @ ${{ env.LLAMA_REF }}, statically linked; the CPU engine always loads, the OpenCL engine is opt-in.
+            * Check what actually loaded: Settings → Diagnostics → "engine lib" and "GPU" lines.
             * Voice typing and audio-overview narration use the device speech services in this build; LFM3-Audio-2B native voice lands after the Phase 0 spike (#1).

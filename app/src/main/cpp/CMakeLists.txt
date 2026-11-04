@@ -32,7 +32,7 @@ target_link_libraries(pocketllm PRIVATE ${log-lib} android)
 target_compile_options(pocketllm PRIVATE -O3 -fexceptions)
 
 option(POCKET_OPENCL
-       "PocketNotebook: enable the ggml OpenCL GPU backend (Adreno)" ON)
+       "PocketNotebook: build the OpenCL GPU engine as libpocketllm_ocl.so (Adreno)" OFF)
 
 if(EXISTS "${POCKET_LLAMA_DIR}/CMakeLists.txt")
     message(STATUS "PocketNotebook: llama.cpp found -> full native engine")
@@ -46,32 +46,40 @@ if(EXISTS "${POCKET_LLAMA_DIR}/CMakeLists.txt")
     set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
     set(GGML_BACKEND_DL      OFF CACHE BOOL "" FORCE)
 
-    # GPU acceleration via the ggml OpenCL backend (see docs/backend/OPENCL.md
+    # GPU engine via the ggml OpenCL backend (see docs/backend/OPENCL.md
     # in the pinned llama.cpp). Adreno (Snapdragon) is the primary target:
     #  - GGML_OPENCL_EMBED_KERNELS (ggml default ON): OpenCL kernels are
-    #    compiled INTO libpocketllm.so — no .cl files to ship.
+    #    compiled INTO the .so — no .cl files to ship.
     #  - GGML_OPENCL_USE_ADRENO_KERNELS (ggml default ON): Adreno-tuned
-    #    matmul/attention kernels.
-    #  - LFM3 needs ssm_conv/ssm_scan/gated_delta_net kernels — all present.
+    #    matmul/attention kernels (LFM3 ssm_conv/ssm_scan/gated_delta_net
+    #    kernels included).
     #  - llama_model_default_params().n_gpu_layers == -1 ("all"), so layers
     #    offload automatically once the backend reports a device.
     # Build-time the linker needs an OpenCL stub (Khronos ICD loader, see
-    # .github/workflows/native.yml); at RUNTIME the dependency resolves to the
-    # device's own vendor libOpenCL.so (a public library on Snapdragon
-    # devices), so no extra .so is shipped. Devices without a usable OpenCL
-    # runtime are not supported by this build path — disable with
-    # -DPOCKET_OPENCL=OFF (gradle: -PgpuOpencl=false).
+    # .github/workflows/release.yml); at RUNTIME the DT_NEEDED resolves to
+    # the device's own vendor libOpenCL.so.
+    #
+    # CRITICAL: libOpenCL.so is NOT a public library on every ROM — it must
+    # be listed in /vendor/etc/public.libraries.txt, and many ROMs don't.
+    # A ROM that does not expose it rejects the ENTIRE .so at dlopen time
+    # (the alpha.9 regression: the OpenCL engine was the only lib, so the
+    # app showed "Kit build" on perfectly good release APKs). That is why
+    # the OpenCL engine builds as a SEPARATE lib, pocketllm_ocl, and never
+    # replaces the always-loadable CPU engine: PocketLlm.kt tries
+    # pocketllm_ocl first and falls back to pocketllm. Release builds ship
+    # one engine per APK (standard = CPU, -gpu = OpenCL).
     if(POCKET_OPENCL)
-        message(STATUS "PocketNotebook: OpenCL GPU backend ENABLED (Adreno)")
+        message(STATUS "PocketNotebook: OpenCL GPU engine — libpocketllm_ocl.so")
         set(GGML_OPENCL ON CACHE BOOL "" FORCE)
         # Kernels compiled INTO the .so (Android ships no .cl files) and the
         # Adreno-tuned matmul/attention kernels (both are ggml defaults; set
         # explicitly so an upstream default change cannot silently regress).
         set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "" FORCE)
         set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "" FORCE)
+        set_target_properties(pocketllm PROPERTIES OUTPUT_NAME "pocketllm_ocl")
         target_compile_definitions(pocketllm PRIVATE POCKET_WITH_OPENCL=1)
     else()
-        message(STATUS "PocketNotebook: OpenCL GPU backend disabled (CPU only)")
+        message(STATUS "PocketNotebook: CPU engine — libpocketllm.so (default)")
     endif()
     add_subdirectory("${POCKET_LLAMA_DIR}" llama_cpp EXCLUDE_FROM_ALL)
     target_link_libraries(pocketllm PRIVATE llama)

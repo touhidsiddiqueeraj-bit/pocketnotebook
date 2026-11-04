@@ -149,7 +149,11 @@ fun DiagnosticsScreen(nav: NavHostController) {
             SectionLabel("Native engine")
             GlassPanel(corner = 20.dp, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "libpocketllm.so: " + if (PocketLlm.libLoaded) "loaded" else "FAILED to load",
+                    "engine lib: " + when (PocketLlm.engineVariant) {
+                        "opencl" -> "libpocketllm_ocl.so (OpenCL GPU build) — loaded"
+                        "cpu" -> "libpocketllm.so (CPU build) — loaded"
+                        else -> "none — no engine lib could be loaded"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (PocketLlm.libLoaded) glass.text else glass.accent,
                 )
@@ -163,9 +167,11 @@ fun DiagnosticsScreen(nav: NavHostController) {
                     )
                 }
                 Text(
-                    "llama.cpp engine: " +
-                        if (PocketLlm.fullEngine) "active (full native build)"
-                        else "not available (kit build or load failure)",
+                    "llama.cpp engine: " + when {
+                        PocketLlm.fullEngine -> "active (${PocketLlm.engineVariant} engine)"
+                        PocketLlm.libLoaded -> "stub — kit build (install a release APK)"
+                        else -> "not loaded (see the load error above)"
+                    },
                     style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
                     modifier = Modifier.padding(top = 4.dp),
                 )
