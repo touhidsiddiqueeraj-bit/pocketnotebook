@@ -31,11 +31,11 @@ class SourceRepo(private val db: SqlDb) {
     }
 
     fun setSummary(id: Long, summary: String) {
-        db.execSQL("UPDATE sources SET summary = ? WHERE id = ?", arrayOf(summary, id))
+        db.execSQL("UPDATE sources SET summary = ? WHERE id = ?", arrayOf<Any?>(summary, id))
     }
 
     fun rename(id: Long, title: String) {
-        db.execSQL("UPDATE sources SET title = ? WHERE id = ?", arrayOf(title, id))
+        db.execSQL("UPDATE sources SET title = ? WHERE id = ?", arrayOf<Any?>(title, id))
     }
 
     fun countForNotebook(notebookId: Long): Int =
@@ -140,7 +140,7 @@ class SourceRepo(private val db: SqlDb) {
     fun putPending(sourceId: Long, uri: String? = null, url: String? = null, text: String? = null) {
         db.execSQL(
             "INSERT OR REPLACE INTO pending_ingest(sourceId, uri, url, text) VALUES (?,?,?,?)",
-            arrayOf(sourceId, uri, url, text),
+            arrayOf<Any?>(sourceId, uri, url, text),
         )
     }
 

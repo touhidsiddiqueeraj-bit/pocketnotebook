@@ -33,7 +33,7 @@ class DbSchemaFts5Test {
     @Test
     fun schemaRequiresFts5_andCreatesCleanly() {
         openDb().use { db ->
-            createStatement().use { s ->
+            db.createStatement().use { s ->
                 s.executeQuery(
                     "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='chunks_fts'",
                 ).use { rs ->
@@ -54,7 +54,7 @@ class DbSchemaFts5Test {
     @Test
     fun triggersIndexChunks_andBm25RanksMatches() {
         openDb().use { db ->
-            createStatement().use { s ->
+            db.createStatement().use { s ->
                 s.execute(
                     "INSERT INTO notebooks (title, createdAt, updatedAt) VALUES ('Research', 1, 1)",
                 )
@@ -99,7 +99,7 @@ class DbSchemaFts5Test {
     @Test
     fun updateAndDeleteTriggersKeepFtsInSync() {
         openDb().use { db ->
-            createStatement().use { s ->
+            db.createStatement().use { s ->
                 s.execute(
                     "INSERT INTO chunks (sourceId, notebookId, ordinal, text) " +
                         "VALUES (1, 1, 0, 'Bananas are a tropical fruit rich in potassium')",
@@ -132,7 +132,7 @@ class DbSchemaFts5Test {
     @Test
     fun insertReturningYieldsId() {
         openDb().use { db ->
-            createStatement().use { s ->
+            db.createStatement().use { s ->
                 val rs = s.executeQuery(
                     "INSERT INTO notebooks (title, createdAt, updatedAt) " +
                         "VALUES ('Notebook', 1, 1) RETURNING id",
@@ -148,7 +148,7 @@ class DbSchemaFts5Test {
     @Test
     fun userVersionRoundTrip() {
         openDb().use { db ->
-            createStatement().use { s ->
+            db.createStatement().use { s ->
                 s.execute("PRAGMA user_version = 1")
                 s.executeQuery("PRAGMA user_version").use { rs ->
                     rs.next()

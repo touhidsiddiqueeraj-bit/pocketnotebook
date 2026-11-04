@@ -17,7 +17,7 @@ class ChatRepo(private val db: SqlDb) {
         db.rawQuery(
             "SELECT id, notebookId, role, content, cites, createdAt FROM messages " +
                 "WHERE notebookId = ? ORDER BY id DESC LIMIT ?",
-            arrayOf(notebookId, limit),
+            arrayOf<Any?>(notebookId, limit),
         ).use { c ->
             val out = ArrayList<ChatMessage>()
             while (c.moveToNext()) {

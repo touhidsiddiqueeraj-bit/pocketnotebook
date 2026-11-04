@@ -13,7 +13,7 @@ class NoteRepo(private val db: SqlDb) {
         })
 
     fun setPinned(id: Long, pinned: Boolean) {
-        db.execSQL("UPDATE notes SET pinned = ? WHERE id = ?", arrayOf(if (pinned) 1 else 0, id))
+        db.execSQL("UPDATE notes SET pinned = ? WHERE id = ?", arrayOf<Any?>(if (pinned) 1 else 0, id))
     }
 
     fun delete(id: Long) {
