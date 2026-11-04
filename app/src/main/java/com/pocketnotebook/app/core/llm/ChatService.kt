@@ -63,6 +63,13 @@ class ChatService(
             maxTokens = 700,
             onToken = onToken,
         )
+        if (raw.isBlank()) {
+            // Never persist an empty "answer" (it used to become a bare
+            // "Sources: [1] [2]…" bubble). Surface the reason instead.
+            throw IllegalStateException(
+                runtime.state.value.chatError ?: "model produced no output",
+            )
+        }
 
         val cleaned = CitationRepair.stripInvalid(raw.trim(), hits.size)
         val finalText = CitationRepair.ensureFooter(cleaned, hits.size, hits.isNotEmpty())

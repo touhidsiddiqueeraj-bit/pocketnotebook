@@ -414,9 +414,13 @@ fun GlassProgressBar(progress: Float, modifier: Modifier = Modifier, height: Dp 
     val shape = RoundedCornerShape(height / 2)
     val animated by animateFloatAsState(progress.coerceIn(0f, 1f), label = "progress")
     Box(
+        // Fixed height: the fill child uses fillMaxHeight(), so the track must
+        // be bounded — with only heightIn(min) the track can stretch to the
+        // parent's full height (or collapse to 0 in unbounded parents, which
+        // made the 99% "Generating…" bar render as an empty track).
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = height)
+            .height(height)
             .clip(shape)
             .background(Brush.linearGradient(listOf(glass.fillTop, glass.fillBottom)))
             .border(0.75.dp, glass.borderBottom.copy(alpha = 0.4f), shape),
@@ -475,7 +479,13 @@ fun GlassTabBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 58.dp)
+                // FIXED height: the indicator pill and the label Row below
+                // both use fillMaxHeight/fillMaxSize. With only heightIn(min)
+                // the bar had no upper bound, so it stretched to the entire
+                // available height of GlassScaffold's bottom slot — the
+                // weighted content slot then received 0px and EVERY notebook
+                // tab rendered as an empty gradient with no controls.
+                .height(58.dp)
                 .shadow(12.dp, RoundedCornerShape(29.dp))
                 .clip(RoundedCornerShape(29.dp))
                 .background(Brush.linearGradient(listOf(glass.fillTop, glass.fillBottom)))

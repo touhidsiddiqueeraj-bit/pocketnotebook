@@ -141,9 +141,17 @@ fun SettingsScreen(nav: NavHostController) {
             // ---------------- engine ----------------
             SectionLabel("Engine")
             GlassPanel(corner = 20.dp, modifier = Modifier.fillMaxWidth()) {
+                // The 1 GB chat model takes ~a minute to load on-device; say
+                // so instead of a silent "not loaded" that looks like a dead
+                // button after every Reload tap.
                 Text(
-                    if (runtimeState.chatPath != null) "Chat model: ${runtimeState.chatMeta?.desc ?: "loaded"}"
-                    else "Chat model: not loaded",
+                    when {
+                        runtimeState.chatPath != null ->
+                            "Chat model: ${runtimeState.chatMeta?.desc ?: "loaded"}"
+                        runtimeState.chatLoading ->
+                            "Chat model: loading into RAM… (a 1 GB model takes up to a minute)"
+                        else -> "Chat model: not loaded"
+                    },
                     style = MaterialTheme.typography.bodyMedium, color = glass.text,
                 )
                 runtimeState.chatError?.let {
@@ -157,12 +165,16 @@ fun SettingsScreen(nav: NavHostController) {
                     GlassButton("Diagnostics", onClick = {
                         nav.navigate(com.pocketnotebook.app.ui.Routes.DIAGNOSTICS)
                     })
-                    GlassButton("Reload", onClick = {
-                        scope.launch {
-                            container.runtime.unloadChat()
-                            container.runtime.ensureChatLoaded()
-                        }
-                    })
+                    GlassButton(
+                        if (runtimeState.chatLoading) "Loading…" else "Reload",
+                        enabled = !runtimeState.chatLoading,
+                        onClick = {
+                            scope.launch {
+                                container.runtime.unloadChat()
+                                container.runtime.ensureChatLoaded()
+                            }
+                        },
+                    )
                 }
             }
 

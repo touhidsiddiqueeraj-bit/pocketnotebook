@@ -172,7 +172,15 @@ class LlmRuntime(
         stop: String = "",
         onToken: (String) -> Unit = {},
     ): String = genMutex.withLock {
-        if (!ensureChatLoaded()) return ""
+        // Fail LOUDLY when the model cannot load: returning "" here used to
+        // ripple into empty chat bubbles and READY-but-blank studio artifacts
+        // that looked like dead buttons. Callers all catch and record.
+        if (!ensureChatLoaded()) {
+            throw IllegalStateException(
+                "chat model not loaded: " +
+                    (_state.value.chatError ?: PocketLlm.lastError() ?: "load failed"),
+            )
+        }
         _state.value = _state.value.copy(generating = true)
         try {
             withContext(Dispatchers.IO) {

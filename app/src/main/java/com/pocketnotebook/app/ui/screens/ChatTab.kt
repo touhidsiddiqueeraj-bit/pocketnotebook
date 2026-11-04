@@ -50,6 +50,8 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
     var messages by remember { mutableStateOf(container.chatRepo.recent(notebookId)) }
     var input by remember { mutableStateOf("") }
     var streamText by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var lastQuestion by remember { mutableStateOf<String?>(null) }
     val runtimeState by container.runtime.state.collectAsState()
 
     // A model is "set" when one is installed+active — independent of whether
@@ -80,6 +82,8 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
     fun send(question: String) {
         if (question.isBlank() || runtimeState.generating || !modelSet) return
         input = ""
+        error = null
+        lastQuestion = question
         streamText = ""
         scope.launch {
             messages = container.chatRepo.recent(notebookId) + ChatMessage(
@@ -88,7 +92,10 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
             )
             try {
                 container.chatService.ask(notebookId, question) { piece -> tokenChannel.trySend(piece) }
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
+                // Show WHY it failed instead of silently swallowing — an
+                // unloaded model used to look like a dead send button.
+                error = (t.message ?: "generation failed").take(220)
             }
             streamText = null
             messages = container.chatRepo.recent(notebookId)
@@ -98,6 +105,14 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
     Column(Modifier.fillMaxWidth()) {
         // ---------------- status strip ----------------
         when {
+            error != null -> Banner(error ?: "") {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassButton("Retry", primary = true, onClick = {
+                        lastQuestion?.let { send(it) }
+                    }, modifier = Modifier.weight(1f))
+                    GlassButton("Dismiss", onClick = { error = null }, modifier = Modifier.weight(1f))
+                }
+            }
             !container.runtime.nativeReady -> Banner("Kit build — no AI engine.") {
                 GlassButton("Models", onClick = { nav.navigate(Routes.MODELS) })
             }

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,9 @@ fun DiagnosticsScreen(nav: NavHostController) {
     var crashReport by remember { mutableStateOf(CrashGuard.latestReport(context)) }
     var crashCount by remember { mutableStateOf(CrashGuard.listReports(context).size) }
     var copied by remember { mutableStateOf(false) }
+    // Live engine state — the load happens in the background and takes a
+    // while, so read it as state, not once at composition.
+    val runtimeState by container.runtime.state.collectAsState()
 
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     val pageSize = CrashGuard.pageSizeBytes()
@@ -183,6 +187,28 @@ fun DiagnosticsScreen(nav: NavHostController) {
                     "chat: ${container.prefs.activeModelPath(ModelSlot.CHAT) ?: "none selected"}\n" +
                         "embed: ${container.prefs.activeModelPath(ModelSlot.EMBED) ?: "none selected"}\n" +
                         "audio: ${container.prefs.activeModelPath(ModelSlot.AUDIO) ?: "none selected"}",
+                    style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
+                    "chat loaded in memory: " +
+                        if (runtimeState.chatPath != null) {
+                            "yes${if (runtimeState.chatLoading) ", reloading…" else ""}"
+                        } else if (runtimeState.chatLoading) "loading…" else "no",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (runtimeState.chatPath != null) glass.text else glass.textMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                val engineError = runtimeState.chatError ?: PocketLlm.lastError()
+                if (engineError != null) {
+                    Text(
+                        "engine error: $engineError",
+                        style = MaterialTheme.typography.bodySmall, color = glass.accent3,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                Text(
+                    "kv cache: ${if (container.prefs.kvQuant == 0) "f16" else if (container.prefs.kvQuant == 8) "q8_0" else "q4_0"}",
                     style = MaterialTheme.typography.bodySmall, color = glass.textMuted,
                     modifier = Modifier.padding(top = 4.dp),
                 )

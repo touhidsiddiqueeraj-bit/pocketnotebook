@@ -122,6 +122,22 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
                 .padding(horizontal = 18.dp, vertical = 8.dp)) {
                 Text("Loading model…", style = MaterialTheme.typography.bodySmall, color = glass.textMuted)
             }
+            runtimeState.chatPath == null && runtimeState.chatError != null ->
+                GlassPanel(corner = 18.dp, modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            (runtimeState.chatError ?: "Model failed to load.").take(200),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = glass.accent3,
+                            modifier = Modifier.weight(1f),
+                        )
+                        GlassButton("Retry", onClick = {
+                            scope.launch { container.runtime.ensureChatLoaded() }
+                        })
+                    }
+                }
         }
 
         LazyVerticalGrid(
