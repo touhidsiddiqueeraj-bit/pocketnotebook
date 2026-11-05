@@ -21,7 +21,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +38,7 @@ import com.pocketnotebook.app.ui.theme.GlassIconButton
 import com.pocketnotebook.app.ui.theme.GlassPanel
 import com.pocketnotebook.app.ui.theme.GlassTextField
 import com.pocketnotebook.app.ui.theme.LocalGlassColors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
@@ -46,7 +46,6 @@ import kotlinx.coroutines.launch
 fun ChatTab(notebookId: Long, nav: NavHostController) {
     val container = rememberContainer()
     val glass = LocalGlassColors.current
-    val scope = rememberCoroutineScope()
 
     var messages by remember { mutableStateOf(container.chatRepo.recent(notebookId)) }
     var input by remember { mutableStateOf("") }
@@ -86,13 +85,19 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
         error = null
         lastQuestion = question
         streamText = ""
-        scope.launch {
+        // App scope, NOT a composition scope: the answer keeps generating
+        // (and keeps persisting) even if the user leaves the tab mid-answer.
+        // On the old scope the stream died with the tab and the cancelled
+        // generation surfaced as a "generation failed" banner.
+        container.appScope.launch {
             messages = container.chatRepo.recent(notebookId) + ChatMessage(
                 id = -1, notebookId = notebookId, role = "user",
                 content = question, cites = null, createdAt = System.currentTimeMillis(),
             )
             try {
                 container.chatService.ask(notebookId, question) { piece -> tokenChannel.trySend(piece) }
+            } catch (c: CancellationException) {
+                throw c
             } catch (t: Throwable) {
                 // Show WHY it failed instead of silently swallowing — an
                 // unloaded model used to look like a dead send button.
@@ -124,7 +129,7 @@ fun ChatTab(notebookId: Long, nav: NavHostController) {
             runtimeState.chatLoading -> Banner("Loading model…")
             runtimeState.chatPath == null && !runtimeState.generating ->
                 Banner((runtimeState.chatError ?: "Model not loaded.").take(240)) {
-                    GlassButton("Retry", onClick = { scope.launch { container.runtime.ensureChatLoaded() } })
+                    GlassButton("Retry", onClick = { container.appScope.launch { container.runtime.ensureChatLoaded() } })
                 }
         }
 

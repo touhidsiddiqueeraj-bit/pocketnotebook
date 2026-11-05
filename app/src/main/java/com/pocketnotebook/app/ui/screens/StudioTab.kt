@@ -28,7 +28,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,7 +60,6 @@ private data class StudioCard(
 fun StudioTab(notebookId: Long, nav: NavHostController) {
     val container = rememberContainer()
     val glass = LocalGlassColors.current
-    val scope = rememberCoroutineScope()
 
     var artifacts by remember { mutableStateOf(container.artifactRepo.list(notebookId)) }
     val runtimeState by container.runtime.state.collectAsState()
@@ -69,26 +67,22 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
 
     fun reload() { artifacts = container.artifactRepo.list(notebookId) }
 
-    // Poll while any artifact is running so generation status updates.
+    // Poll always: the old "reload only when an artifact already looks
+    // running" condition could never discover a JUST-requested artifact
+    // (chicken-and-egg), so cards never showed their Generating state.
+    // One small-table SELECT every 1.2 s is cheap.
     LaunchedEffect(Unit) {
         while (true) {
-            if (artifacts.any { it.status == "running" || it.status == "pending" }) reload()
+            reload()
             delay(1200)
         }
     }
 
     fun generate(card: StudioCard) {
         if (runtimeState.generating || !modelSet) return
-        scope.launch {
-            when (card.kind) {
-                ArtifactKind.MINDMAP -> container.studioService.generateMindMap(notebookId)
-                ArtifactKind.FLASHCARDS -> container.studioService.generateFlashcards(notebookId)
-                ArtifactKind.QUIZ -> container.studioService.generateQuiz(notebookId)
-                ArtifactKind.OVERVIEW -> container.studioService.generateOverviewScript(notebookId, "deepdive")
-                else -> container.studioService.generateReport(notebookId, card.kind)
-            }
-            reload()
-        }
+        // App scope, NOT a composition scope: generations must survive the
+        // user leaving this tab (see AppContainer.appScope).
+        container.studioService.request(notebookId, card.kind)
     }
 
     val cards = listOf(
@@ -134,7 +128,7 @@ fun StudioTab(notebookId: Long, nav: NavHostController) {
                             modifier = Modifier.weight(1f),
                         )
                         GlassButton("Retry", onClick = {
-                            scope.launch { container.runtime.ensureChatLoaded() }
+                            container.appScope.launch { container.runtime.ensureChatLoaded() }
                         })
                     }
                 }

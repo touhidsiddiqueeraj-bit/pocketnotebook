@@ -5,6 +5,9 @@ import com.pocketnotebook.app.core.db.ArtifactRepo
 import com.pocketnotebook.app.core.db.ArtifactStatus
 import com.pocketnotebook.app.core.db.SourceRepo
 import com.pocketnotebook.app.core.engine.LlmRuntime
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.math.roundToInt
@@ -22,10 +25,33 @@ class StudioService(
     private val sourceRepo: SourceRepo,
     private val artifactRepo: ArtifactRepo,
     private val runtime: LlmRuntime,
+    private val scope: CoroutineScope,
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+    }
+
+    /**
+     * Fire-and-forget UI entry point. Launches on the app scope so the
+     * artifact finishes even when the user leaves the Studio tab, opens
+     * another screen or backgrounds the app — running the generation on a
+     * composition scope (rememberCoroutineScope) aborted it the moment the
+     * tab left composition and the card failed with
+     * "coroutine scope left the composition" (alpha.11).
+     * The UI observes progress through the artifact repo poll — nothing
+     * else is needed.
+     */
+    fun request(notebookId: Long, kind: String) {
+        scope.launch {
+            when (kind) {
+                ArtifactKind.MINDMAP -> generateMindMap(notebookId)
+                ArtifactKind.FLASHCARDS -> generateFlashcards(notebookId)
+                ArtifactKind.QUIZ -> generateQuiz(notebookId)
+                ArtifactKind.OVERVIEW -> generateOverviewScript(notebookId, "deepdive")
+                else -> generateReport(notebookId, kind)
+            }
+        }
     }
 
     /** Instruction system prompt for every studio generation. */
@@ -148,6 +174,14 @@ class StudioService(
                 status = ArtifactStatus.READY,
                 payload = md,
             )
+        } catch (c: CancellationException) {
+            // Cancellation is not a failure reason — record it as such and
+            // let the coroutine machinery see the cancel. This used to hit the
+            // generic Throwable branch and store Compose's cancellation
+            // message ("coroutine scope left the composition") as the
+            // user-visible artifact error.
+            artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = "cancelled")
+            throw c
         } catch (t: Throwable) {
             artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = t.message ?: "failed")
         }
@@ -181,6 +215,14 @@ class StudioService(
                 artifactId, status = ArtifactStatus.READY,
                 payload = json.encodeToString(MindMapNode.serializer(), tree),
             )
+        } catch (c: CancellationException) {
+            // Cancellation is not a failure reason — record it as such and
+            // let the coroutine machinery see the cancel. This used to hit the
+            // generic Throwable branch and store Compose's cancellation
+            // message ("coroutine scope left the composition") as the
+            // user-visible artifact error.
+            artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = "cancelled")
+            throw c
         } catch (t: Throwable) {
             artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = t.message ?: "failed")
         }
@@ -229,6 +271,14 @@ class StudioService(
                 artifactId, status = ArtifactStatus.READY,
                 payload = json.encodeToString(FlashcardSet.serializer(), parsed),
             )
+        } catch (c: CancellationException) {
+            // Cancellation is not a failure reason — record it as such and
+            // let the coroutine machinery see the cancel. This used to hit the
+            // generic Throwable branch and store Compose's cancellation
+            // message ("coroutine scope left the composition") as the
+            // user-visible artifact error.
+            artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = "cancelled")
+            throw c
         } catch (t: Throwable) {
             artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = t.message ?: "failed")
         }
@@ -263,6 +313,14 @@ class StudioService(
                 artifactId, status = ArtifactStatus.READY,
                 payload = json.encodeToString(QuizSet.serializer(), parsed),
             )
+        } catch (c: CancellationException) {
+            // Cancellation is not a failure reason — record it as such and
+            // let the coroutine machinery see the cancel. This used to hit the
+            // generic Throwable branch and store Compose's cancellation
+            // message ("coroutine scope left the composition") as the
+            // user-visible artifact error.
+            artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = "cancelled")
+            throw c
         } catch (t: Throwable) {
             artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = t.message ?: "failed")
         }
@@ -301,6 +359,14 @@ class StudioService(
                 artifactId, status = ArtifactStatus.READY,
                 payload = json.encodeToString(OverviewScript.serializer(), script),
             )
+        } catch (c: CancellationException) {
+            // Cancellation is not a failure reason — record it as such and
+            // let the coroutine machinery see the cancel. This used to hit the
+            // generic Throwable branch and store Compose's cancellation
+            // message ("coroutine scope left the composition") as the
+            // user-visible artifact error.
+            artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = "cancelled")
+            throw c
         } catch (t: Throwable) {
             artifactRepo.update(artifactId, status = ArtifactStatus.FAILED, error = t.message ?: "failed")
         }

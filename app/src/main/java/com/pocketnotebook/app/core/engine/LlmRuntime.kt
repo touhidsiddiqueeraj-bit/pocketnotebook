@@ -80,12 +80,21 @@ class LlmRuntime(
                 return false
             }
             _state.value = _state.value.copy(chatLoading = true)
-            val ok = withContext(Dispatchers.IO) {
-                PocketLlm.nativeBackendInit()
-                val h = PocketLlm.nativeLoadModel(path, autoContext(), threads, false, prefs.kvQuant)
-                chatHandle = h
-                h != 0L
+            val h = try {
+                withContext(Dispatchers.IO) {
+                    PocketLlm.nativeBackendInit()
+                    PocketLlm.nativeLoadModel(path, autoContext(), threads, false, prefs.kvQuant)
+                }
+            } catch (t: Throwable) {
+                // Reset the flag even on cancellation: a caller scope dying
+                // mid-load used to leave chatLoading=true forever, which kept
+                // the "Loading model…" banner up on Chat/Studio with no way
+                // for the UI to know the load was actually dead.
+                _state.value = _state.value.copy(chatLoading = false)
+                throw t
             }
+            chatHandle = h
+            val ok = h != 0L
             _state.value = _state.value.copy(
                 chatLoading = false,
                 chatPath = if (ok) path else null,
@@ -119,12 +128,17 @@ class LlmRuntime(
                 return false
             }
             _state.value = _state.value.copy(embedLoading = true)
-            val ok = withContext(Dispatchers.IO) {
-                PocketLlm.nativeBackendInit()
-                val h = PocketLlm.nativeLoadModel(path, 1024, threads, true, 0)
-                embedHandle = h
-                h != 0L
+            val h = try {
+                withContext(Dispatchers.IO) {
+                    PocketLlm.nativeBackendInit()
+                    PocketLlm.nativeLoadModel(path, 1024, threads, true, 0)
+                }
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(embedLoading = false)
+                throw t
             }
+            embedHandle = h
+            val ok = h != 0L
             _state.value = _state.value.copy(
                 embedLoading = false,
                 embedPath = if (ok) path else null,

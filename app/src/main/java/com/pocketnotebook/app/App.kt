@@ -21,6 +21,9 @@ import com.pocketnotebook.app.core.crash.CrashGuard
 import com.pocketnotebook.app.core.prefs.PocketPrefs
 import com.pocketnotebook.app.core.retrieval.Retriever
 import com.pocketnotebook.app.core.work.Channels
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class App : Application() {
 
@@ -71,11 +74,20 @@ class AppContainer(private val app: App) {
     val prefs = PocketPrefs(app)
     val runtime = LlmRuntime(app, db, prefs)
 
+    /**
+     * App-lifetime scope for work that must outlive any screen: studio
+     * artifact generations, chat answers, model (re)loads. Running these on
+     * Compose's rememberCoroutineScope() tied each artifact to its tab —
+     * leaving the tab cancelled the generation mid-flight and the artifact
+     * failed with "coroutine scope left the composition" (alpha.11 Studio).
+     */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     // services
     val retriever = Retriever(sq, sourceRepo, runtime)
     val ingestPipeline = IngestPipeline(app, sourceRepo, runtime)
     val chatService = ChatService(retriever, chatRepo, notebookRepo, runtime)
-    val studioService = StudioService(sourceRepo, artifactRepo, runtime)
+    val studioService = StudioService(sourceRepo, artifactRepo, runtime, appScope)
 
     // hf
     private val okHttp = HfApi.defaultClient()
