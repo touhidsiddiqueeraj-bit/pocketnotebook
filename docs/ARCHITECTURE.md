@@ -59,13 +59,13 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    ONB[Onboarding\n(first-run model download)] --> HOME
-    HOME -->|open notebook| NTBK[NotebookScreen\nNotes · Sources · Chat · Studio]
+    ONB[Onboarding<br/>(first-run model download)] --> HOME
+    HOME -->|open notebook| NTBK[NotebookScreen<br/>Notes · Sources · Chat · Studio]
     NTBK -->|open chunk| SV[Source viewer]
-    NTBK -->|open artifact| ART[Artifact screens:\nreport · mind map · flashcards · quiz · audio player]
+    NTBK -->|open artifact| ART[Artifact screens:<br/>report · mind map · flashcards · quiz · audio player]
     NTBK --> MODELS[Model manager]
     NTBK --> SETTINGS[Settings]
-    SETTINGS --> DIAG[Diagnostics\nengine lib · GPU · context]
+    SETTINGS --> DIAG[Diagnostics<br/>engine lib · GPU · context]
 ```
 
 `AppRoot` hosts a single Compose `NavHost` with routes
@@ -85,10 +85,10 @@ alpha.12 by moving all generation work onto an app-lifetime scope.
 flowchart TB
     subgraph COMPOSE["Composition scopes (die with the UI)"]
         LE[LaunchedEffect — polling, one-shot warmup]
-        RCS[rememberCoroutineScope — transient UI only:\nsearch calls, chip refresh, snackbar]
+        RCS[rememberCoroutineScope — transient UI only:<br/>search calls, chip refresh, snackbar]
     end
-    subgraph APPSCOPE["AppContainer.appScope\nSupervisorJob + Dispatchers.Default"]
-        GEN[Studio artifact generation\nrequest → generateX]
+    subgraph APPSCOPE["AppContainer.appScope<br/>SupervisorJob + Dispatchers.Default"]
+        GEN[Studio artifact generation<br/>request → generateX]
         CHAT[Chat ask + streaming]
         LOAD[Model (re)load ensureChatLoaded]
     end
@@ -192,11 +192,11 @@ dlopen fallback:
 
 ```mermaid
 flowchart TB
-    START[PocketLlm init] --> TRY1["try System.loadLibrary(pocketllm_ocl)\nOpenCL/Adreno engine"]
+    START[PocketLlm init] --> TRY1["try System.loadLibrary(pocketllm_ocl)<br/>OpenCL/Adreno engine"]
     TRY1 -->|ROM exposes libOpenCL.so| GPU["fullEngine=true, GPU line in Diagnostics"]
-    TRY1 -->|dlopen rejected| TRY2["try System.loadLibrary(pocketllm)\nCPU engine"]
+    TRY1 -->|dlopen rejected| TRY2["try System.loadLibrary(pocketllm)<br/>CPU engine"]
     TRY2 -->|ok| CPU["fullEngine=true, CPU path"]
-    TRY2 -->|fails| KIT["fullEngine=false → 'Kit build' banner\n(engineless diagnostic screen)"]
+    TRY2 -->|fails| KIT["fullEngine=false → 'Kit build' banner<br/>(engineless diagnostic screen)"]
 ```
 
 - The **standard APK** carries only `libpocketllm.so` (loads everywhere).
@@ -301,10 +301,10 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
     subgraph EVERY_PUSH[android-ci.yml — every push]
-        KIT[kit build -PskipNative=true\ntests · lint · stub APK]
+        KIT[kit build -PskipNative=true<br/>tests · lint · stub APK]
     end
     subgraph MAIN[native.yml — push to main]
-        NA[full native build (arm64)\n+ 16 KB gate + artifact]
+        NA[full native build (arm64)<br/>+ 16 KB gate + artifact]
     end
     subgraph TAG[release.yml — push tag v*]
         T1[unit tests] --> T2[CPU APK assembleRelease]
@@ -312,7 +312,7 @@ flowchart LR
         T3 --> T4[stage CPU lib]
         T4 --> T5[GPU APK = OpenCL lib + CPU lib]
         T5 --> T6[16 KB gate]
-        T6 --> REL[GitHub Release:\narm64.apk + arm64-gpu.apk + checksums]
+        T6 --> REL[GitHub Release:<br/>arm64.apk + arm64-gpu.apk + checksums]
     end
 ```
 
