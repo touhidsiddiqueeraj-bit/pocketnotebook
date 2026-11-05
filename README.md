@@ -20,7 +20,7 @@ land after the Phase 0 spike (#1).
 | Doc | Contents |
 |---|---|
 | [docs/PLAN.md](docs/PLAN.md) | Master plan: feature-parity map, stack, pipelines, risks, roadmap |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System diagrams, data model, model lifecycle, JNI surface |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System diagrams, navigation, coroutine-scope model, studio/chat pipelines, engine fallback, data model, JNI surface |
 | [docs/MODEL_MATRIX.md](docs/MODEL_MATRIX.md) | On-device model strategy (LFM3-first), HF integration, licenses |
 | [docs/BUILD.md](docs/BUILD.md) | Kit vs full builds, llama.cpp pin, signing, CI/CD |
 | [docs/PRIVACY.md](docs/PRIVACY.md) | Local-first privacy model + v0.1 speech caveats |
