@@ -40,19 +40,32 @@ class OverviewBaker(
         val script = json.decodeFromString(StudioService.OverviewScript.serializer(), payload)
         if (script.segments.isEmpty()) throw IllegalStateException("empty script")
 
+        val speakable = script.segments.map { cleanForSpeech(it.text) }
+        if (speakable.all { it.isBlank() }) {
+            throw IllegalStateException("script has no speakable text")
+        }
+
         val dir = audioDir(artifactId)
         if (!dir.exists()) dir.mkdirs()
         else dir.listFiles()?.forEach { it.delete() }
 
         var done = 0
         for ((index, segment) in script.segments.withIndex()) {
-            val out = File(dir, "seg_%04d.bin".format(index))
-            val (pitch, rate) = if (segment.speaker == "B")
-                TtsManager.PITCH_B to TtsManager.RATE_B
-            else TtsManager.PITCH_A to TtsManager.RATE_A
+            val text = speakable[index]
+            // Blank-after-cleanup segments (bare URLs, citation noise) would
+            // make engines error out — skip them instead of failing the bake.
+            if (text.isNotBlank()) {
+                val out = File(dir, "seg_%04d.bin".format(index))
+                val (pitch, rate) = if (segment.speaker == "B")
+                    TtsManager.PITCH_B to TtsManager.RATE_B
+                else TtsManager.PITCH_A to TtsManager.RATE_A
 
-            val ok = tts.synthesize(cleanForSpeech(segment.text), out, pitch, rate)
-            if (!ok) throw IllegalStateException("TTS failed at segment ${index + 1}")
+                val ok = tts.synthesize(text, out, pitch, rate)
+                if (!ok) throw IllegalStateException(
+                    "TTS failed at segment ${index + 1}: " +
+                        (tts.lastFailure ?: "unknown engine error"),
+                )
+            }
             done++
             onProgress(done, script.segments.size)
         }

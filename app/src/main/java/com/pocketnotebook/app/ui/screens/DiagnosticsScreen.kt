@@ -16,11 +16,13 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -55,9 +57,22 @@ fun DiagnosticsScreen(nav: NavHostController) {
     var crashReport by remember { mutableStateOf(CrashGuard.latestReport(context)) }
     var crashCount by remember { mutableStateOf(CrashGuard.listReports(context).size) }
     var copied by remember { mutableStateOf(false) }
+    // TTS probe result — refreshed after the probe finishes.
+    var ttsStatus by remember { mutableStateOf(container.ttsManager.lastStatus) }
+
     // Live engine state — the load happens in the background and takes a
     // while, so read it as state, not once at composition.
     val runtimeState by container.runtime.state.collectAsState()
+
+    // Probe the platform TTS engine (init only, no synthesis) so the
+    // report shows the real engine/voice — the audio-overview bake depends
+    // on it, and "TTS failed at segment 1" was undiagnosable without this.
+    LaunchedEffect(Unit) {
+        container.appScope.launch {
+            container.ttsManager.probe()
+            ttsStatus = container.ttsManager.lastStatus
+        }
+    }
 
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     val pageSize = CrashGuard.pageSizeBytes()
@@ -89,6 +104,7 @@ fun DiagnosticsScreen(nav: NavHostController) {
         appendLine("kv-cache-quant: ${if (container.prefs.kvQuant == 0) "f16" else if (container.prefs.kvQuant == 8) "q8_0" else "q4_0"}")
         appendLine("embed-model: ${container.prefs.activeModelPath(ModelSlot.EMBED) ?: "none"}")
         appendLine("audio-model: ${container.prefs.activeModelPath(ModelSlot.AUDIO) ?: "none"}")
+        appendLine("tts: $ttsStatus")
         appendLine()
         appendLine("=== last crash report (${crashCount} kept) ===")
         appendLine(crashReport ?: "none")

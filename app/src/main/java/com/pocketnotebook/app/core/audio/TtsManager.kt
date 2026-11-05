@@ -6,6 +6,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.File
@@ -17,6 +18,11 @@ import java.util.concurrent.ConcurrentHashMap
  * Platform TTS (v0.1 narration engine — always present, zero extra download).
  * Speaker A/B differ via pitch/rate so 2-host overviews feel like a dialogue.
  * LFM3-Audio-2B native voices replace this once Phase 0 wiring lands.
+ *
+ * Every failure path records WHY in [lastFailure] (and [lastStatus]): the
+ * alpha.12 bake died with a bare "TTS failed at segment 1" and no reason,
+ * while the usual causes are device-side and fixable by the user — no TTS
+ * engine installed, or voice data not downloaded for the language.
  */
 class TtsManager(private val context: Context) {
 
@@ -24,17 +30,61 @@ class TtsManager(private val context: Context) {
     private var ready: CompletableDeferred<Boolean>? = null
     private val utterances = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
-    private fun ensure(): Boolean {
-        if (tts != null && ready?.isCompleted == true) return true
-        if (tts != null) return false
+    /** Human-readable state of the last init/synthesis — shown in Diagnostics. */
+    @Volatile var lastStatus: String = "not initialized"
+        private set
+
+    /** Why the last synthesize failed (null = none yet). */
+    @Volatile var lastFailure: String? = null
+        private set
+
+    @Volatile private var language: Locale? = null
+
+    /**
+     * First usable voice: en-US → en-GB → en-IN → system default → ANY voice
+     * the engine offers. A missing locale result means the voice data is not
+     * downloaded (fresh device, offline) — that must surface as a clear
+     * reason, not as a silent synthesis failure at bake time.
+     */
+    private fun pickLanguage(e: TextToSpeech): Locale? {
+        val preferred = listOf(Locale.US, Locale.UK, Locale("en", "IN"), Locale.getDefault())
+        for (loc in preferred) {
+            if (e.setLanguage(loc) >= 0) return loc
+        }
+        val any = try {
+            e.availableLanguages.firstOrNull { e.setLanguage(it) >= 0 }
+        } catch (_: Throwable) {
+            null
+        }
+        return any
+    }
+
+    @Synchronized
+    private fun ensure(): CompletableDeferred<Boolean>? {
+        // Return the SAME deferred whether init already finished or is still
+        // in flight — the old code returned hard-false for a concurrent
+        // second caller while init was pending.
+        ready?.let { return it }
+
         val d = CompletableDeferred<Boolean>()
-        ready = d
-        var ok = false
+        val initReason = arrayOf<String?>(null)
+        // The init callback runs as a main-looper message, strictly AFTER
+        // the constructor returns and `ref` is assigned — but it can't
+        // capture the constructor's own result value, so it reads it
+        // through this captured holder instead.
+        var ref: TextToSpeech? = null
         val t = TextToSpeech(context.applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
+            val e = ref
+            var ok = false
+            if (status != TextToSpeech.SUCCESS) {
+                initReason[0] =
+                    "no working system text-to-speech engine (init status=$status) — " +
+                        "install/enable one in system Settings → Text-to-speech"
+            } else if (e == null) {
+                initReason[0] = "engine reference lost during init"
+            } else {
                 try {
-                    tts?.language = Locale.US
-                    tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    e.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) {}
                         override fun onDone(utteranceId: String?) {
                             utterances.remove(utteranceId)?.complete(true)
@@ -44,32 +94,68 @@ class TtsManager(private val context: Context) {
                         override fun onError(utteranceId: String?) {
                             utterances.remove(utteranceId)?.complete(false)
                         }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            // The engine tells us WHY — record it instead of
+                            // discarding it (the deprecated overload has no code).
+                            lastFailure = describe(errorCode)
+                            utterances.remove(utteranceId)?.complete(false)
+                        }
                     })
-                    ok = true
-                } catch (_: Throwable) {
-                    ok = false
+                    val lang = pickLanguage(e)
+                    if (lang == null) {
+                        initReason[0] =
+                            "no installed voice (English or system language) — open system " +
+                                "Settings → Text-to-speech and download the engine's voice data, " +
+                                "then retry the bake"
+                    } else {
+                        language = lang
+                        ok = true
+                    }
+                } catch (t2: Throwable) {
+                    initReason[0] = "init: ${t2.message ?: t2.toString()}"
                 }
             }
+            lastStatus = if (ok) {
+                "ready · engine=${e?.defaultEngine ?: "?"} · voice=$language"
+            } else {
+                "failed · ${initReason[0]}"
+            }
+            if (!ok) lastFailure = initReason[0]
             d.complete(ok)
         }
+        ref = t
         tts = t
-        return true // async; callers must call waitReady()
+        ready = d
+        return d
     }
 
-    private suspend fun waitReady(): Boolean {
-        if (!ensure()) return false
-        return ready?.await() ?: false
+    private suspend fun waitReady(): Boolean = ensure()?.await() ?: false
+
+    /**
+     * Initialize the engine without synthesizing — used by Diagnostics so the
+     * report shows the real engine/voice state of the device.
+     */
+    suspend fun probe(): Boolean = withContext(Dispatchers.Main) { waitReady() }
+
+    /** Engine error code → human reason. */
+    private fun describe(code: Int): String = when (code) {
+        TextToSpeech.ERROR -> "generic engine error"
+        TextToSpeech.ERROR_SYNTHESIS -> "synthesis failed — voice data missing for the language"
+        TextToSpeech.ERROR_SERVICE -> "TTS service died"
+        TextToSpeech.ERROR_OUTPUT -> "audio output/file write failed"
+        TextToSpeech.ERROR_NETWORK -> "network error — voice data download interrupted?"
+        TextToSpeech.ERROR_NETWORK_TIMEOUT -> "network timeout — voice data download interrupted?"
+        TextToSpeech.ERROR_INVALID_REQUEST -> "invalid request (empty or unusable text)"
+        TextToSpeech.ERROR_NOT_INSTALLED_YET ->
+            "voice data not downloaded yet — go online once, Settings → Text-to-speech → " +
+                "Play, then retry"
+        else -> "engine error code $code"
     }
 
-    /** Synthesize [text] to [out] — blocking until the engine finishes. */
-    suspend fun synthesize(
-        text: String,
-        out: File,
-        pitch: Float = 1.0f,
-        rate: Float = 1.0f,
-    ): Boolean = withContext(Dispatchers.Main) {
-        if (!waitReady()) return@withContext false
-        val engine = tts ?: return@withContext false
+    /** One synthesis attempt — must run on the main dispatcher. */
+    private suspend fun attempt(text: String, out: File, pitch: Float, rate: Float): Boolean {
+        val engine = tts ?: run { lastFailure = "engine not initialized"; return false }
         out.parentFile?.mkdirs()
         if (out.exists()) out.delete()
 
@@ -79,8 +165,17 @@ class TtsManager(private val context: Context) {
 
         engine.setPitch(pitch)
         engine.setSpeechRate(rate)
-        val params = Bundle()
-        engine.synthesizeToFile(text, params, out, id)
+        val queued = try {
+            engine.synthesizeToFile(text, Bundle(), out, id)
+        } catch (t: Throwable) {
+            lastFailure = "queue failed: ${t.message ?: t.toString()}"
+            return false
+        }
+        if (queued == TextToSpeech.ERROR) {
+            utterances.remove(id)
+            lastFailure = "engine refused the utterance (${engine.defaultEngine ?: "default engine"})"
+            return false
+        }
 
         val success = try {
             withTimeout(120_000) { done.await() }
@@ -89,9 +184,46 @@ class TtsManager(private val context: Context) {
         } finally {
             utterances.remove(id)
         }
-        success && out.exists() && out.length() > 0
+        if (!success) {
+            if (lastFailure == null) lastFailure = "synthesis timed out or failed (no engine detail)"
+            return false
+        }
+        if (!out.exists() || out.length() == 0L) {
+            lastFailure = "engine reported success but wrote no audio"
+            return false
+        }
+        return true
     }
 
+    /** Synthesize [text] to [out] — blocking until the engine finishes. */
+    suspend fun synthesize(
+        text: String,
+        out: File,
+        pitch: Float = 1.0f,
+        rate: Float = 1.0f,
+    ): Boolean = withContext(Dispatchers.Main) {
+        lastFailure = null
+        if (text.isBlank()) {
+            lastFailure = "segment text is empty after speech cleanup"
+            return@withContext false
+        }
+        if (!waitReady()) {
+            // ensure()/init already recorded the exact reason in lastFailure.
+            return@withContext false
+        }
+        if (attempt(text, out, pitch, rate)) return@withContext true
+        // One retry: several stock engines drop the very first utterance
+        // right after init — exactly the "failed at segment 1" case.
+        val first = lastFailure
+        delay(750)
+        lastFailure = null
+        if (attempt(text, out, pitch, rate)) return@withContext true
+        if (lastFailure == null) lastFailure = first
+        lastStatus = "failed · ${lastFailure}"
+        false
+    }
+
+    @Synchronized
     fun shutdown() {
         try {
             tts?.shutdown()
@@ -99,6 +231,8 @@ class TtsManager(private val context: Context) {
         }
         tts = null
         ready = null
+        language = null
+        lastStatus = "shutdown"
     }
 
     companion object {
